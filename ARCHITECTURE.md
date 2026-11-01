@@ -88,7 +88,7 @@ promotion.
 
 ## Journal durability
 
-The journal lives on Render's persistent disk. A paper account reset changes
+The journal lives on a persistent disk at the host. A paper account reset changes
 the broker's balance, not the journal: the bot detects the jump, re-seeds the
 kill-switch anchor, and keeps every historical row.
 
