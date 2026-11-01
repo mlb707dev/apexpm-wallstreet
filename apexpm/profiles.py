@@ -17,9 +17,23 @@ PROFILES: Dict[str, Dict[str, float]] = {
                      "blurb": "The configured defaults. Stacked signals earn up to 1.5x size."},
     "growth":       {"risk_mult": 1.5, "trades_mult": 2.0, "kelly_mult": 1.25, "confluence_step": 0.5, "confluence_max": 2.0,
                      "blurb": "Loose: more size, more trades, stacked signals earn up to 2x. For fast growth; the hard ceilings still apply."},
+    # Hyper growth: the small-account phase. Risk per trade is an absolute share of equity
+    # (risk_abs), enough for one options contract at the premium stop. Two losses in a row
+    # is a 75% drawdown at 0.5; the equity bands step down automatically as the account grows.
+    "hyper":        {"risk_mult": 1.0, "risk_abs": 0.5, "trades_mult": 1.0, "kelly_mult": 1.0, "confluence_step": 0.0, "confluence_max": 1.0,
+                     "blurb": "Hyper growth: up to 50% of equity at risk per trade, one position at a time. For the smallest accounts only."},
 }
-DEFAULT = "growth"
-CEILINGS = {"risk_mult": 2.0, "trades_mult": 2.5, "kelly_mult": 1.5}
+DEFAULT = "auto"       # choose by equity band
+CEILINGS = {"risk_mult": 2.0, "trades_mult": 2.5, "kelly_mult": 1.5, "risk_abs": 0.6}
+# Equity bands for the automatic profile (upper bound exclusive)
+BANDS = [(2500.0, "hyper"), (10000.0, "growth"), (float("inf"), "standard")]
+
+
+def band_profile(equity: float) -> str:
+    for upper, name in BANDS:
+        if equity < upper:
+            return name
+    return "standard"
 
 
 def entries_paused(journal) -> bool:
@@ -33,13 +47,16 @@ def set_entries_paused(journal, paused: bool, note: str = "") -> None:
                   ("entries_paused" if paused else "entries_resumed", note))
 
 
-def get_profile(journal) -> str:
+def get_profile(journal, equity: float = None) -> str:
+    """Manual override if set; otherwise the equity band ('auto')."""
     name = journal.get_state("risk_profile", DEFAULT) or DEFAULT
-    return name if name in PROFILES else DEFAULT
+    if name in PROFILES:
+        return name
+    return band_profile(equity if equity is not None else 0.0)
 
 
 def set_profile(journal, name: str, note: str = "") -> str:
-    if name not in PROFILES:
+    if name not in PROFILES and name != "auto":
         raise ValueError(f"unknown profile {name}")
     journal.set_state("risk_profile", name)
     with journal.tx() as c:
@@ -53,8 +70,11 @@ class EffectiveConfig:
 
     def __init__(self, cfg, profile: str, event_size_mult: float = 1.0):
         self._cfg = cfg
-        p = PROFILES.get(profile, PROFILES[DEFAULT])
-        self.max_pos_pct = min(cfg.max_pos_pct * p["risk_mult"] * event_size_mult, cfg.max_pos_pct * CEILINGS["risk_mult"], 0.2)
+        p = PROFILES.get(profile, PROFILES["standard"])
+        if p.get("risk_abs"):
+            self.max_pos_pct = min(p["risk_abs"] * event_size_mult, CEILINGS["risk_abs"])
+        else:
+            self.max_pos_pct = min(cfg.max_pos_pct * p["risk_mult"] * event_size_mult, cfg.max_pos_pct * CEILINGS["risk_mult"], 0.2)
         self.max_trades_per_day = max(1, int(round(cfg.max_trades_per_day * p["trades_mult"])))
         self.kelly_fraction = min(cfg.kelly_fraction * p["kelly_mult"], 1.0)
         self.profile = profile

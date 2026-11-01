@@ -168,9 +168,12 @@ class Bot:
             pass
         rl = ribbon_from_closes(ltf["close"].values, self.cfg.ema_fast, self.cfg.ema_mid, self.cfg.ema_slow)
         rh = ribbon_from_closes(htf["close"].values, self.cfg.ema_fast, self.cfg.ema_mid, self.cfg.ema_slow)
-        prev_rl = None
-        if len(ltf) > self.cfg.ema_slow + 1:
+        prev_rl = prev2_rl = None
+        if len(ltf) > self.cfg.ema_slow + 2:
             prev_rl = ribbon_from_closes(ltf["close"].values[:-1], self.cfg.ema_fast, self.cfg.ema_mid, self.cfg.ema_slow)
+            prev2_rl = ribbon_from_closes(ltf["close"].values[:-2], self.cfg.ema_fast, self.cfg.ema_mid, self.cfg.ema_slow)
+        last = ltf.iloc[-1]
+        vol_avg = float(ltf["volume"].iloc[-21:-1].mean()) if "volume" in ltf and len(ltf) > 21 else 0.0
 
         reached = self._reached.setdefault(symbol, {"long": 0.0, "short": 0.0})
         prev_reached = dict(reached)
@@ -237,7 +240,7 @@ class Bot:
         assert self.state is not None
         taken: List[Signal] = []
         ctx = self._day_ctx or cal.day_context(now_et.date(), self.cfg.symbols, self.journal)
-        ecfg = EffectiveConfig(self.cfg, get_profile(self.journal), ctx.size_mult)
+        ecfg = EffectiveConfig(self.cfg, get_profile(self.journal, self.state.equity), ctx.size_mult)
         snap = self.snapshot(symbol, today, now_utc)
         if snap is None:
             return taken

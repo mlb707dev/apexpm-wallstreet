@@ -58,6 +58,8 @@ def size_trade(*, equity: float, price: float, entry: float, stop: float, target
 
     k_full = kelly_fraction_full(p, b)
     k_used = max(0.0, min(cfg.kelly_fraction * k_full, cfg.max_pos_pct))
+    if getattr(cfg, "profile", "") == "hyper":
+        k_used = cfg.max_pos_pct if k_full > 0 else 0.0     # hyper: the band sets size, not Kelly
     if k_used <= 0:
         return SizeResult(0, 0, k_full, 0, 0, 0, "negative_edge")
 

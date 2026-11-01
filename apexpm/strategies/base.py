@@ -35,6 +35,14 @@ class MarketSnapshot:
     bar_index_today: int = 0          # 0 = first bar of the session
     minutes_since_open: int = 0
     prev_ribbon_ltf: Optional[Ribbon] = None
+    prev2_ribbon_ltf: Optional[Ribbon] = None
+    bar_open: float = 0.0
+    bar_high: float = 0.0
+    bar_low: float = 0.0
+    prev_close: float = 0.0
+    prev2_close: float = 0.0
+    bar_volume: float = 0.0
+    vol_avg20: float = 0.0            # average volume of the prior 20 bars
 
 
 class _Params:

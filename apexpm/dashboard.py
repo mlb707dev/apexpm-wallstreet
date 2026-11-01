@@ -126,7 +126,8 @@ class Api:
                 age = int((datetime.now(timezone.utc) - datetime.fromisoformat(hb)).total_seconds())
             except ValueError:
                 age = None
-        prof = profiles.get_profile(self.j)
+        acct = self._account()
+        prof = profiles.get_profile(self.j, acct.get("equity") if acct.get("connected") else None)
         eff = profiles.EffectiveConfig(self.cfg, prof)
         return {
             "heartbeat": hb, "heartbeat_age_sec": age, "alive": age is not None and age < 180,
@@ -288,7 +289,9 @@ class Api:
         return d
 
     def settings(self) -> Dict[str, Any]:
-        return {"profile": profiles.get_profile(self.j),
+        acct = self._account()
+        return {"profile": profiles.get_profile(self.j, acct.get("equity") if acct.get("connected") else None),
+                "profile_mode": self.j.get_state("risk_profile", "auto") or "auto", "bands": profiles.BANDS,
                 "profiles": {k: {kk: vv for kk, vv in v.items()} for k, v in profiles.PROFILES.items()},
                 "strategies": self.strategies(), "bot": self.bot()}
 

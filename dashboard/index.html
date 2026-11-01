@@ -99,7 +99,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 7</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 8</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -299,8 +299,10 @@ async function loadHome(){
     $('#t_atr').textContent = fmt(lv.atr) + ' (' + (lv.atr/lv.anchor*100).toFixed(2) + '%)';
   }
   const st = await api('/api/settings');
-  $('#seg').innerHTML = Object.keys(st.profiles).map(k=>`<button class="${k===st.profile?'on':''}" onclick="setProfile('${k}')">${k}</button>`).join('');
-  $('#profblurb').textContent = st.profiles[st.profile].blurb;
+  const keys = ['auto'].concat(Object.keys(st.profiles));
+  $('#seg').style.gridTemplateColumns = 'repeat('+keys.length+',1fr)';
+  $('#seg').innerHTML = keys.map(k=>`<button class="${(st.profile_mode==='auto'?k==='auto':k===st.profile)?'on':''}" onclick="setProfile('${k}')">${k}${k==='auto'?' ('+st.profile+')':''}</button>`).join('');
+  $('#profblurb').textContent = (st.profile_mode==='auto' ? 'Auto by equity: hyper under $2,500, growth to $10,000, standard above. Now: ' : '') + st.profiles[st.profile].blurb;
 }
 async function setPause(paused){
   const note = await ask((paused?'Pause':'Resume')+' new entries', paused?'No new positions until resumed. Exits keep running.':'New entries allowed again.'); if(note===null) return;

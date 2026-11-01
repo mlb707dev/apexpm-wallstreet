@@ -5,7 +5,7 @@ from apexpm.profiles import EffectiveConfig, PROFILES, get_profile, set_profile
 def test_default_and_switch(cfg):
     j = Journal(":memory:")
     j._conn.executescript("CREATE TABLE IF NOT EXISTS strategy_events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, name TEXT, event TEXT, detail TEXT)")
-    assert get_profile(j) == "growth"  # loose by default
+    assert get_profile(j, 500.0) == "hyper" and get_profile(j, 5000.0) == "growth" and get_profile(j, 50000.0) == "standard"
     set_profile(j, "conservative", "test")
     assert get_profile(j) == "conservative"
     ev = j.q("SELECT * FROM strategy_events")
@@ -30,3 +30,13 @@ def test_unknown_profile_rejected(cfg):
     with pytest.raises(ValueError):
         set_profile(j, "yolo")
     assert all(k in PROFILES for k in ("conservative", "standard", "growth"))
+
+
+def test_hyper_sizes_to_half_equity(cfg):
+    from apexpm.sizing import size_trade
+    e = EffectiveConfig(cfg, "hyper")
+    assert e.max_pos_pct == 0.5
+    cfg.fractional_shares = True
+    r = size_trade(equity=500, price=100.0, entry=100.0, stop=98.0, target=104.0, atr=2.0, closed_pnls=[], cfg=e)
+    # half the equity at risk / $2 per share, capped by the notional ceiling
+    assert r.qty > 0 and r.notional <= 500 * cfg.max_notional_pct + 1e-6

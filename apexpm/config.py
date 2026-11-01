@@ -101,6 +101,15 @@ class Config:
 
 
 
+    # EMA hold (owner's recipe) false-breakout switches
+    eh_require_htf: bool = field(default_factory=lambda: _b("EH_REQUIRE_HTF", True))
+    eh_require_volume: bool = field(default_factory=lambda: _b("EH_REQUIRE_VOLUME", True))
+    eh_vol_mult: float = field(default_factory=lambda: _f("EH_VOL_MULT", 1.0))
+    eh_require_room: bool = field(default_factory=lambda: _b("EH_REQUIRE_ROOM", True))
+    eh_min_room_atr: float = field(default_factory=lambda: _f("EH_MIN_ROOM_ATR", 0.1))
+    eh_first_minutes: int = field(default_factory=lambda: _i("EH_FIRST_MINUTES", 210))
+    eh_skip_lunch: bool = field(default_factory=lambda: _b("EH_SKIP_LUNCH", True))
+
     # Governance / learning loop
     review_window_trades: int = field(default_factory=lambda: _i("REVIEW_WINDOW_TRADES", 30))
     review_min_trades: int = field(default_factory=lambda: _i("REVIEW_MIN_TRADES", 20))

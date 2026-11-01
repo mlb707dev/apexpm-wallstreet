@@ -276,16 +276,26 @@ class Backtester:
                     continue
                 he = htf_ema.loc[h_idx[-1]]
                 rh = Ribbon(float(he["fast"]), float(he["mid"]), float(he["slow"]))
-                prev_rl = None
-                if pos_i > 0:
-                    pe = ltf_ema.loc[bars.index[pos_i - 1]]
+                prev_rl = prev2_rl = None
+                prev_close = prev2_close = 0.0
+                gi = ltf.index.get_loc(ts)          # global index (crosses session boundaries for EMAs/volume)
+                if gi >= 1:
+                    pe = ltf_ema.iloc[gi - 1]
                     prev_rl = Ribbon(float(pe["fast"]), float(pe["mid"]), float(pe["slow"]))
+                    prev_close = float(ltf["close"].iloc[gi - 1])
+                if gi >= 2:
+                    pe2 = ltf_ema.iloc[gi - 2]
+                    prev2_rl = Ribbon(float(pe2["fast"]), float(pe2["mid"]), float(pe2["slow"]))
+                    prev2_close = float(ltf["close"].iloc[gi - 2])
+                vol_avg = float(ltf["volume"].iloc[max(0, gi - 20):gi].mean()) if "volume" in ltf and gi > 0 else 0.0
                 snap = MarketSnapshot(symbol=self.symbol, price=close, levels=levels,
                                       ribbon_ltf=rl, ribbon_htf=rh, ltf_closes=[],
                                       regime="trend_up" if rh.state == "bull" else "trend_down" if rh.state == "bear" else "chop",
                                       reached_today=prev_reached, bar_index_today=pos_i,
                                       minutes_since_open=int((ts_et.hour - 9) * 60 + ts_et.minute - 30),
-                                      prev_ribbon_ltf=prev_rl)
+                                      prev_ribbon_ltf=prev_rl, prev2_ribbon_ltf=prev2_rl,
+                                      bar_open=o, bar_high=hi, bar_low=lo, prev_close=prev_close, prev2_close=prev2_close,
+                                      bar_volume=float(bar.get("volume", 0.0)), vol_avg20=vol_avg)
                 sig, why = self.strategy.evaluate(snap, cfg)
                 if sig is None:
                     if why and why != "not_at_entry_level":
