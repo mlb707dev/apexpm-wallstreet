@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import logging
 import mimetypes
 import os
 import threading
@@ -365,7 +366,7 @@ class Api:
         from types import SimpleNamespace
         from .weekly import send_email, weekly_recap
         acct = self._account()
-        shim = SimpleNamespace(journal=self.j, registry=self.reg, cfg=self.cfg, log=log,
+        shim = SimpleNamespace(journal=self.j, registry=self.reg, cfg=self.cfg, log=logging.getLogger("apexpm.weekly"),
                                state=SimpleNamespace(equity=acct.get("equity")) if acct.get("connected") else None)
         report = weekly_recap(shim, week_end or None)
         sent = False
@@ -510,6 +511,13 @@ def make_handler(api: Api, token: str = ""):
             return self._send(404, b"not found", "text/plain")
 
         def do_POST(self):  # noqa: N802
+            try:
+                return self._do_post()
+            except Exception as exc:  # noqa: BLE001
+                logging.getLogger("apexpm.dashboard").exception("POST %s failed: %s", self.path, exc)
+                return self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"[:200]}, 500)
+
+        def _do_post(self):
             if not self._authed():
                 return self._json({"ok": False, "error": "unauthorized"}, 401)
             path = urlparse(self.path).path
