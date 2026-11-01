@@ -38,7 +38,10 @@ def test_unknown_profile_rejected(cfg):
 def test_hyper_sizes_to_half_equity(cfg):
     from apexpm.sizing import size_trade
     e = EffectiveConfig(cfg, "hyper")
-    assert e.max_pos_pct == 0.5
+    assert e.max_pos_pct == 0.5                       # profile alone (no equity band known)
+    assert EffectiveConfig(cfg, "hyper", 1.0, 800).max_pos_pct == 1.0     # under $1k: full equity allowed
+    assert EffectiveConfig(cfg, "growth", 1.0, 3000).max_pos_pct == 0.75  # $1k–5k: scaled back slightly
+    assert EffectiveConfig(cfg, "growth", 1.0, 7000).max_pos_pct == cfg.max_pos_pct * 1.5
     cfg.fractional_shares = True
     r = size_trade(equity=500, price=100.0, entry=100.0, stop=98.0, target=104.0, atr=2.0, closed_pnls=[], cfg=e)
     # half the equity at risk / $2 per share, capped by the notional ceiling

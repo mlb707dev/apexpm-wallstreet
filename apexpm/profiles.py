@@ -24,14 +24,16 @@ PROFILES: Dict[str, Dict[str, float]] = {
                      "blurb": "Hyper growth: up to 50% of equity at risk per trade, one position at a time. For the smallest accounts only."},
 }
 DEFAULT = "auto"       # choose by equity band
-CEILINGS = {"risk_mult": 2.0, "trades_mult": 2.5, "kelly_mult": 1.5, "risk_abs": 0.6}
+CEILINGS = {"risk_mult": 2.0, "trades_mult": 2.5, "kelly_mult": 1.5, "risk_abs": 1.0}
 # Equity bands for the automatic profile (upper bound exclusive). Safeguards return by band.
 BANDS = [(1000.0, "hyper"), (5000.0, "growth"), (10000.0, "growth"), (50000.0, "standard"), (float("inf"), "standard")]
 # Per-band overrides applied on top of the profile: daily loss cap (fraction of session-start
 # equity; 0 = off), max open positions, max trades per day.
 BAND_RULES = [
-    (1000.0,        {"daily_loss_pct": 0.0,  "max_positions": 1, "max_trades_per_day": 3}),   # hyper: one at a time, in-trade stops only
-    (5000.0,        {"daily_loss_pct": 0.15, "max_positions": 2, "max_trades_per_day": 4}),
+    # risk_abs = max share of equity in one trade (owner, 2026-11-01: "as much as full up to $1k,
+    # then scale back slightly as we grow to $5k"). In-trade stops still cap the loss per trade.
+    (1000.0,        {"daily_loss_pct": 0.0,  "max_positions": 1, "max_trades_per_day": 3, "risk_abs": 1.0}),   # hyper: one at a time, in-trade stops only
+    (5000.0,        {"daily_loss_pct": 0.15, "max_positions": 2, "max_trades_per_day": 4, "risk_abs": 0.75}),
     (10000.0,       {"daily_loss_pct": 0.10, "max_positions": 3, "max_trades_per_day": 5}),
     (50000.0,       {"daily_loss_pct": 0.08, "max_positions": 3, "max_trades_per_day": 6}),
     (float("inf"),  {"daily_loss_pct": 0.06, "max_positions": 3, "max_trades_per_day": 8}),
@@ -110,7 +112,9 @@ class EffectiveConfig:
         self._cfg = cfg
         p = PROFILES.get(profile, PROFILES["standard"])
         rules = band_rules(equity) if equity is not None else None
-        if p.get("risk_abs"):
+        if rules and rules.get("risk_abs"):          # equity band sets an absolute share (small-account phase)
+            self.max_pos_pct = min(rules["risk_abs"] * event_size_mult, CEILINGS["risk_abs"])
+        elif p.get("risk_abs"):                       # hyper profile chosen by hand, band unknown
             self.max_pos_pct = min(p["risk_abs"] * event_size_mult, CEILINGS["risk_abs"])
         else:
             self.max_pos_pct = min(cfg.max_pos_pct * p["risk_mult"] * event_size_mult, cfg.max_pos_pct * CEILINGS["risk_mult"], 0.2)
