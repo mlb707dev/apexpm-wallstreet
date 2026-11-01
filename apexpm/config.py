@@ -139,9 +139,9 @@ class Config:
     opt_flat_before_close_min: int = field(default_factory=lambda: _i("OPT_FLAT_BEFORE_CLOSE_MIN", 20))
 
     # Exit engine
-    exit_be_at_r: float = field(default_factory=lambda: _f("EXIT_BE_AT_R", 1.0))
+    exit_be_at_r: float = field(default_factory=lambda: _f("EXIT_BE_AT_R", 0.0))
     exit_be_offset_atr: float = field(default_factory=lambda: _f("EXIT_BE_OFFSET_ATR", 0.02))
-    exit_runner: bool = field(default_factory=lambda: _b("EXIT_RUNNER", True))
+    exit_runner: bool = field(default_factory=lambda: _b("EXIT_RUNNER", False))
     exit_trail_atr: float = field(default_factory=lambda: _f("EXIT_TRAIL_ATR", 0.1))
     max_daily_loss_pct: float = field(default_factory=lambda: _f("MAX_DAILY_LOSS_PCT", 0.06))  # of session start equity
 
