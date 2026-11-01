@@ -66,7 +66,7 @@ class Registry:
     def register(self, strategy: Strategy, default_status: str = "research",
                  symbols: Optional[List[str]] = None) -> None:
         assert default_status in STATUSES
-        self._entries[strategy.name] = Entry(strategy, default_status, symbols or list(self.cfg.symbols))
+        self._entries[strategy.name] = Entry(strategy, default_status, symbols or (list(self.cfg.symbols) + list(getattr(self.cfg, "crypto_symbols", []))))
         row = self.journal.q1("SELECT status FROM strategy_status WHERE name=?", (strategy.name,))
         if row is None:
             self.set_status(strategy.name, default_status, "registered with default status")

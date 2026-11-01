@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
+from .conviction import score as conviction_score
 from .exits import ExitPlan, update as exit_update
 from .levels import LevelMap, build_levels, wilder_atr_series
 from .ribbon import Ribbon
@@ -314,6 +315,17 @@ class Backtester:
                     if why and why != "not_at_entry_level":
                         rej(why)
                     continue
+                cmin = getattr(cfg, "conviction_min", 0)
+                if cmin > 0:
+                    lo_i = max(0, gi - 80)
+                    conv = conviction_score(sig.direction, snap, ltf["close"].values[lo_i:gi + 1],
+                                            ltf["high"].values[lo_i:gi + 1] if "high" in ltf else None,
+                                            ltf["low"].values[lo_i:gi + 1] if "low" in ltf else None)
+                    sig.context["conviction"] = conv.score
+                    sig.context["confirmations"] = ",".join(conv.fired)
+                    if conv.score < cmin:
+                        rej(f"low_conviction:{conv.score}")
+                        continue
                 ls = last_stop[sig.direction]
                 if ls is not None and (ts - ls) < timedelta(minutes=cfg.stop_cooldown_min):
                     rej("stop_cooldown")

@@ -271,7 +271,13 @@ class Api:
             except Exception:  # noqa: BLE001
                 return "?"
 
+        def conv(t):
+            try:
+                return json.loads(t["notes"] or "{}").get("conviction", "?")
+            except Exception:  # noqa: BLE001
+                return "?"
         return {"by_strategy": agg(lambda t: t["setup"]), "by_direction": agg(lambda t: t["direction"]),
+                "by_conviction": agg(conv),
                 "by_hour": agg(hour), "by_weekday": agg(dow), "by_exit": agg(lambda t: t["exit_reason"]),
                 "by_regime": agg(lambda t: t["regime"]), "n": len(closed)}
 

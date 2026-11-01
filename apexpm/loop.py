@@ -27,6 +27,7 @@ from .exits import ExitPlan, update as exit_update
 from .levels import LevelMap, levels_from_daily
 from .log import get_logger, safe
 from . import calendar as cal
+from .conviction import score as conviction_score
 from .profiles import EffectiveConfig, entries_paused, get_profile
 from .registry import Registry
 from .ribbon import ribbon_from_closes
@@ -265,6 +266,13 @@ class Bot:
                 taken += self._scan_symbol(symbol, today, now_utc, now_et)
             except Exception as exc:  # noqa: BLE001
                 self.log.exception("%s scan failed: %s", symbol, exc)
+        # crypto: shadow book only (never ordered), scanned in the same session window so the
+        # journal can compare like with like; the weekly review flags it if it is working
+        for symbol in self.cfg.crypto_symbols:
+            try:
+                self._scan_symbol(symbol, today, now_utc, now_et, shadow_only=True)
+            except Exception as exc:  # noqa: BLE001
+                self.log.warning("%s shadow scan failed: %s", symbol, exc)
         return taken
 
     _vix_at: Optional[datetime] = None
@@ -290,7 +298,7 @@ class Bot:
         except Exception as exc:  # noqa: BLE001
             self.log.warning("vix fetch failed: %s", exc)
 
-    def _scan_symbol(self, symbol: str, today: str, now_utc: datetime, now_et: datetime) -> List[Signal]:
+    def _scan_symbol(self, symbol: str, today: str, now_utc: datetime, now_et: datetime, shadow_only: bool = False) -> List[Signal]:
         assert self.state is not None
         taken: List[Signal] = []
         ctx = self._day_ctx or cal.day_context(now_et.date(), self.cfg.symbols, self.journal)
@@ -326,8 +334,9 @@ class Bot:
             reject(symbol, "session", blocked)
             return taken
 
-        active = self.registry.active(symbol)
-        observing = self.registry.observing(symbol)
+        active = [] if shadow_only else self.registry.active(symbol)
+        observing = self.registry.observing(symbol) if not shadow_only else \
+            [e.strategy for e in self.registry._entries.values() if not getattr(e.strategy, "inner", None)]
         for strat in active + observing:
             observe_only = strat in observing
             sig, why = strat.evaluate(snap, self.cfg)
@@ -335,9 +344,16 @@ class Bot:
                 if why not in ("not_at_entry_level",):
                     reject(symbol, strat.name, why)
                 continue
+            # conviction gate: several independent confirmations or no trade (journaled either way)
+            conv = conviction_score(sig.direction, snap, snap.ltf_closes)
+            sig.context["conviction"] = conv.score
+            sig.context["confirmations"] = conv.fired
             if observe_only:
                 reject(symbol, strat.name, "research_observed", sig.direction,
-                       json.dumps({"entry": sig.entry, "stop": sig.stop, "target": sig.target}))
+                       json.dumps({"entry": sig.entry, "stop": sig.stop, "target": sig.target, "conviction": conv.score}))
+                continue
+            if conv.score < self.cfg.conviction_min:
+                reject(symbol, strat.name, f"low_conviction:{conv.score}", sig.direction, json.dumps(conv.factors))
                 continue
             gates = riskmod.entry_gates(self.state, symbol=symbol, direction=sig.direction, now=now_utc,
                                         last_stop_iso=self.journal.last_stop_time(symbol, sig.direction), cfg=ecfg)
@@ -364,7 +380,7 @@ class Bot:
             if sz.qty <= 0:
                 reject(symbol, strat.name, f"size:{sz.reason}", sig.direction)
                 continue
-            cm = ecfg.confluence_mult(int(sig.context.get("confluence", 1)))
+            cm = ecfg.confluence_mult(max(int(sig.context.get("confluence", 1)), int(sig.context.get("conviction", 1))))
             if cm != 1.0:
                 cap = min(self.cfg.max_pos_dollars, self.state.equity * self.cfg.max_notional_pct) / snap.price
                 qty = min(sz.qty * cm, cap)

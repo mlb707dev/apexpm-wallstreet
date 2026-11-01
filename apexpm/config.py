@@ -59,6 +59,7 @@ class Config:
     # Universe and session
     symbols: List[str] = field(default_factory=lambda: _list("SYMBOLS", ["SPY", "QQQ"]))
     track_vix: bool = field(default_factory=lambda: _b("TRACK_VIX", True))
+    crypto_symbols: List[str] = field(default_factory=lambda: [x.upper() for x in (os.getenv("CRYPTO_SYMBOLS") or "BTC/USD,ETH/USD,XRP/USD").split(",") if x.strip()])
     scan_interval_sec: int = field(default_factory=lambda: _i("SCAN_INTERVAL_SEC", 15))
     stream_enabled: bool = field(default_factory=lambda: _b("STREAM_ENABLED", True))
     data_feed: str = field(default_factory=lambda: _s("DATA_FEED", "iex"))   # iex (free) | sip (paid)
@@ -137,6 +138,9 @@ class Config:
     opt_min_dte: int = field(default_factory=lambda: _i("OPT_MIN_DTE", 0))
     opt_max_dte: int = field(default_factory=lambda: _i("OPT_MAX_DTE", 2))
     opt_flat_before_close_min: int = field(default_factory=lambda: _i("OPT_FLAT_BEFORE_CLOSE_MIN", 20))
+
+    # Conviction: confirmations are RECORDED on every signal; CONVICTION_MIN=0 means soft (never blocks)
+    conviction_min: int = field(default_factory=lambda: _i("CONVICTION_MIN", 0))
 
     # Exit engine
     exit_be_at_r: float = field(default_factory=lambda: _f("EXIT_BE_AT_R", 0.0))

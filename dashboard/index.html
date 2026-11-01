@@ -99,7 +99,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 13</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 14</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -355,7 +355,7 @@ function tbl(title, rows){
 }
 async function loadAnalytics(){
   const a = await api('/api/analytics');
-  $('#ana').innerHTML = a.n ? tbl('By strategy', a.by_strategy) + tbl('By direction', a.by_direction) + tbl('By hour (ET)', a.by_hour) + tbl('By weekday', a.by_weekday) + tbl('By exit reason', a.by_exit) + tbl('By regime', a.by_regime)
+  $('#ana').innerHTML = a.n ? tbl('By strategy', a.by_strategy) + tbl('By direction', a.by_direction) + tbl('By hour (ET)', a.by_hour) + tbl('By weekday', a.by_weekday) + tbl('By exit reason', a.by_exit) + tbl('By regime', a.by_regime) + tbl('By conviction (confirmations at entry)', a.by_conviction||[])
     : '<div class="card"><div class="empty">Analytics appear once trades close.</div></div>';
 }
 

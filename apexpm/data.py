@@ -11,19 +11,34 @@ class DataFeed:
     def __init__(self, cfg):
         self.cfg = cfg
         self._client = None
+        self._crypto = None
         if cfg.alpaca_api_key and cfg.alpaca_secret_key:
             from alpaca.data.historical import StockHistoricalDataClient
             self._client = StockHistoricalDataClient(cfg.alpaca_api_key, cfg.alpaca_secret_key)
+            try:
+                from alpaca.data.historical import CryptoHistoricalDataClient
+                self._crypto = CryptoHistoricalDataClient(cfg.alpaca_api_key, cfg.alpaca_secret_key)
+            except Exception:  # noqa: BLE001
+                self._crypto = None
+
+    @staticmethod
+    def is_crypto(symbol: str) -> bool:
+        return "/" in symbol
 
     @property
     def connected(self) -> bool:
         return self._client is not None
 
     def _bars(self, symbol: str, timeframe, start: datetime, end: Optional[datetime] = None) -> pd.DataFrame:
-        from alpaca.data.requests import StockBarsRequest
-        req = StockBarsRequest(symbol_or_symbols=symbol, timeframe=timeframe, start=start, end=end,
-                               feed="iex")
-        bars = self._client.get_stock_bars(req).df
+        if self.is_crypto(symbol):
+            from alpaca.data.requests import CryptoBarsRequest
+            req = CryptoBarsRequest(symbol_or_symbols=symbol, timeframe=timeframe, start=start, end=end)
+            bars = self._crypto.get_crypto_bars(req).df
+        else:
+            from alpaca.data.requests import StockBarsRequest
+            req = StockBarsRequest(symbol_or_symbols=symbol, timeframe=timeframe, start=start, end=end,
+                                   feed="iex")
+            bars = self._client.get_stock_bars(req).df
         if bars.empty:
             return bars
         if isinstance(bars.index, pd.MultiIndex):
@@ -52,8 +67,12 @@ class DataFeed:
 
     def last_trade(self, symbol: str):
         """(price, timestamp) of the latest trade, or (None, None)."""
-        from alpaca.data.requests import StockLatestTradeRequest
-        t = self._client.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols=symbol, feed="iex"))
+        if self.is_crypto(symbol):
+            from alpaca.data.requests import CryptoLatestTradeRequest
+            t = self._crypto.get_crypto_latest_trade(CryptoLatestTradeRequest(symbol_or_symbols=symbol))
+        else:
+            from alpaca.data.requests import StockLatestTradeRequest
+            t = self._client.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols=symbol, feed="iex"))
         trade = t.get(symbol)
         if not trade:
             return None, None
