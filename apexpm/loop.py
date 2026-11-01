@@ -193,6 +193,15 @@ class Bot:
 
         acct = self.broker.account()
         self.state.equity = acct.equity
+        # Account reset detection: equity far from the anchor with no trades closed today
+        # is a paper reset (or a deposit/withdrawal), not a drawdown. Re-anchor instead of halting.
+        anchor = self.state.starting_equity
+        if anchor > 0 and abs(acct.equity - anchor) / anchor > 0.5 and self.journal.realized_pnl_today(today) == 0.0 \
+                and not self.journal.open_trades():
+            self.log.warning("account reset detected: equity %.2f vs anchor %.2f; re-anchoring", acct.equity, anchor)
+            self.state.starting_equity = acct.equity
+            self.journal.set_state(f"starting_equity:{today}", str(acct.equity))
+            self.journal.set_state("starting_equity", str(acct.equity))
         ks = riskmod.check_kill_switch(self.state, self.cfg.kill_dd_pct)
         if ks:
             self.journal.set_state(f"halted:{today}", "1")
