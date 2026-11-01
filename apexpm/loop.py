@@ -22,6 +22,7 @@ from .data import DataFeed
 from .db import Journal, et_date
 from .levels import LevelMap, levels_from_daily
 from .log import get_logger, safe
+from .profiles import EffectiveConfig, get_profile
 from .registry import Registry
 from .ribbon import ribbon_from_closes
 from .sizing import size_trade
@@ -193,10 +194,14 @@ class Bot:
     def _scan_symbol(self, symbol: str, today: str, now_utc: datetime, now_et: datetime) -> List[Signal]:
         assert self.state is not None
         taken: List[Signal] = []
+        ecfg = EffectiveConfig(self.cfg, get_profile(self.journal))
         snap = self.snapshot(symbol, today, now_utc)
         if snap is None:
             return taken
         ts = now_utc.isoformat(timespec="seconds")
+        safe(self.journal.set_state, "heartbeat", ts)
+        safe(self.journal.set_state, f"last_price:{symbol}", str(snap.price))
+        safe(self.journal.set_state, f"regime:{symbol}", snap.regime)
         safe(self.journal.scan, ts=ts, symbol=symbol, price=snap.price, atr=snap.levels.atr,
              anchor=snap.levels.anchor, ribbon_ltf=snap.ribbon_ltf.state,
              ribbon_htf=snap.ribbon_htf.state, regime=snap.regime, signal=None)
@@ -225,7 +230,7 @@ class Bot:
                        json.dumps({"entry": sig.entry, "stop": sig.stop, "target": sig.target}))
                 continue
             gates = riskmod.entry_gates(self.state, symbol=symbol, direction=sig.direction, now=now_utc,
-                                        last_stop_iso=self.journal.last_stop_time(symbol, sig.direction), cfg=self.cfg)
+                                        last_stop_iso=self.journal.last_stop_time(symbol, sig.direction), cfg=ecfg)
             if any(t["symbol"] == symbol for t in self.journal.pending_trades()):
                 gates.append("pending_order")
             if gates:
@@ -233,7 +238,7 @@ class Bot:
                 continue
             pnls = [t["pnl"] for t in self.journal.closed_trades(strat.name) if t["pnl"] is not None]
             sz = size_trade(equity=self.state.equity, price=snap.price, entry=sig.entry, stop=sig.stop,
-                            target=sig.target, atr=snap.levels.atr, closed_pnls=pnls, cfg=self.cfg)
+                            target=sig.target, atr=snap.levels.atr, closed_pnls=pnls, cfg=ecfg)
             if sz.qty <= 0:
                 reject(symbol, strat.name, f"size:{sz.reason}", sig.direction)
                 continue
@@ -401,6 +406,10 @@ class Bot:
                     self.scan_once()
                 else:
                     self.log.info("market closed")
+                    safe(self.journal.set_state, "heartbeat", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+                    safe(self.journal.set_state, "market", "closed")
+                if self.broker.clock_is_open():
+                    safe(self.journal.set_state, "market", "open")
             except KeyboardInterrupt:
                 self.log.info("stopped by user")
                 return

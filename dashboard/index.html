@@ -14,200 +14,300 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
-<link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png">
 <title>ApexPM Wallstreet</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=JetBrains+Mono:wght@500;700&family=Orbitron:wght@600;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
-:root{--bg:#050510;--bg2:#0d0d1a;--bg3:#12122a;--line:#1c1c3a;--text:#c8d4f0;--dim:#6b7299;
---sky:#38bdf8;--purple:#a855f7;--pink:#ec4899;--orange:#f97316;--red:#ff2d55;--amber:#ffaa00;--green:#22c55e;}
+:root{--bg:#0b1020;--bg2:#10162b;--bg3:#161d35;--line:#222b48;--text:#c8d4f0;--dim:#6b7299;
+--sky:#38bdf8;--purple:#a855f7;--pink:#ec4899;--orange:#f97316;--red:#ff2d55;--amber:#ffaa00;--green:#22c55e;--gold:#d4af37}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:var(--bg);color:var(--text);font-family:'DM Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-body{padding:0 0 calc(72px + env(safe-area-inset-bottom))}
 .mono{font-family:'JetBrains Mono',monospace}
-header{position:sticky;top:0;z-index:5;background:linear-gradient(180deg,var(--bg) 70%,transparent);padding:calc(12px + env(safe-area-inset-top)) 16px 10px;display:flex;align-items:center;justify-content:space-between}
-header h1{font-family:'Orbitron',sans-serif;font-weight:800;font-size:15px;letter-spacing:.14em;color:#fff}
-header h1 span{color:var(--sky)}
-.badge{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.08em;padding:4px 8px;border-radius:6px;border:1px solid var(--line);color:var(--dim)}
-.badge.dry{color:var(--amber);border-color:#3a2d00}.badge.paper{color:var(--sky);border-color:#0b3a52}.badge.live{color:var(--red);border-color:#4a0f1f}
-main{padding:0 16px;max-width:860px;margin:0 auto}
-section{display:none}section.active{display:block}
-h2{font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:.16em;color:var(--dim);margin:18px 0 10px;text-transform:uppercase}
-.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-@media(min-width:640px){.tiles{grid-template-columns:repeat(4,1fr)}}
-.tile{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
-.tile .k{font-size:10px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
-.tile .v{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;margin-top:4px;color:#fff}
-.tile .v.pos{color:var(--green)}.tile .v.neg{color:var(--red)}
-.card{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
-.card h3{font-size:13px;font-weight:700;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:8px}
-.card p{font-size:12px;color:var(--dim);margin-top:4px}
+header{position:sticky;top:0;z-index:5;background:rgba(11,16,32,.96);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.hbar{max-width:1100px;margin:0 auto;padding:calc(10px + env(safe-area-inset-top)) 16px 8px;display:flex;align-items:center;gap:10px}
+.hbar img{width:30px;height:30px;border-radius:7px}
+.hbar h1{font-family:'Orbitron',sans-serif;font-weight:800;font-size:14px;letter-spacing:.14em;color:#fff}
+.hbar h1 span{color:var(--sky)}
 .chip{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.06em;padding:3px 7px;border-radius:6px;text-transform:uppercase}
-.chip.paper{background:#0b3a52;color:var(--sky)}.chip.research{background:#2a1d4a;color:var(--purple)}.chip.suspended{background:#4a0f1f;color:var(--red)}.chip.retired{background:#222;color:var(--dim)}.chip.live{background:#143d1f;color:var(--green)}
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}
-.stats div{background:var(--bg3);border-radius:8px;padding:6px 8px}
-.stats .k{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
-.stats .v{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:#fff}
-.actions{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
-button{font-family:'DM Sans',sans-serif;font-weight:600;font-size:12px;border-radius:8px;border:1px solid var(--line);background:var(--bg3);color:var(--text);padding:8px 10px}
-button.warn{border-color:#4a0f1f;color:var(--red)}button.ok{border-color:#0b3a52;color:var(--sky)}
+.chip.paper{background:#0b3a52;color:var(--sky)}.chip.research{background:#2a1d4a;color:var(--purple)}.chip.suspended{background:#4a0f1f;color:var(--red)}.chip.retired{background:#222;color:var(--dim)}.chip.live{background:#143d1f;color:var(--green)}.chip.dry{background:#3a2d00;color:var(--amber)}.chip.off{background:#2a2a2a;color:var(--dim)}
+.heq{margin-left:auto;font-family:'JetBrains Mono',monospace;font-weight:700;color:#fff;font-size:15px}
+.tabs{max-width:1100px;margin:0 auto;display:flex;gap:2px;overflow-x:auto;padding:0 10px;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);font-family:'DM Sans',sans-serif;font-weight:600;font-size:13px;padding:10px 12px;white-space:nowrap}
+.tabs button.on{color:#fff;border-bottom-color:var(--sky)}
+main{max-width:1100px;margin:0 auto;padding:14px 16px calc(24px + env(safe-area-inset-bottom))}
+section{display:none}section.active{display:block}
+.grid{display:grid;grid-template-columns:1fr;gap:12px}
+@media(min-width:900px){.grid{grid-template-columns:1.3fr 1fr}}
+.card{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.card h3{font-size:14px;font-weight:700;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.card p{font-size:12px;color:var(--dim)}
+.kv{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.kv div .k{font-size:10px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
+.kv div .v{font-family:'JetBrains Mono',monospace;font-size:19px;font-weight:700;color:#fff;margin-top:2px}
+.kv div .v.sm{font-size:14px}
+.pos{color:var(--green)!important}.neg{color:var(--red)!important}
+.row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.row:last-child{border-bottom:0}.row b{font-family:'JetBrains Mono',monospace;color:#fff;font-weight:600}
+.row .dim{color:var(--dim);font-size:11px}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:6px 0 10px}
+.seg button{background:var(--bg3);border:0;color:var(--dim);padding:10px 4px;font-family:'DM Sans',sans-serif;font-weight:600;font-size:12px}
+.seg button.on{background:#1f2a4d;color:#fff}
+.banner{background:#1a2a12;border:1px solid #24401a;border-left:3px solid var(--green);border-radius:10px;padding:10px 12px;font-size:12px;color:#cde;margin-bottom:12px}
+.banner.warn{background:#2a2010;border-color:#4a3a10;border-left-color:var(--amber)}
+.banner.bad{background:#2a0a14;border-color:#4a0f1f;border-left-color:var(--red)}
 table{width:100%;border-collapse:collapse;font-size:12px}
 th{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 td{padding:7px 4px;border-bottom:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap}
 .tbl{overflow-x:auto;-webkit-overflow-scrolling:touch}
-.pos{color:var(--green)}.neg{color:var(--red)}
 .levels{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .lv{display:flex;justify-content:space-between;background:var(--bg3);border-radius:8px;padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:12px}
 .lv.up{border-left:3px solid var(--green)}.lv.dn{border-left:3px solid var(--red)}.lv.anchor{grid-column:1/-1;border-left:3px solid var(--sky)}
-pre{white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);line-height:1.5}
-.empty{color:var(--dim);font-size:12px;padding:10px 0}
-nav{position:fixed;bottom:0;left:0;right:0;background:rgba(5,5,16,.92);backdrop-filter:blur(12px);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:8px 0 calc(8px + env(safe-area-inset-bottom))}
-nav button{background:none;border:none;color:var(--dim);font-size:10px;letter-spacing:.06em;text-transform:uppercase;display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 10px}
-nav button.on{color:var(--sky)}nav button i{width:18px;height:18px;border-radius:5px;background:currentColor;opacity:.85;display:block}
+pre{white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5}
+.empty{color:var(--dim);font-size:12px;padding:8px 0}
+button.btn{font-family:'DM Sans',sans-serif;font-weight:600;font-size:12px;border-radius:8px;border:1px solid var(--line);background:var(--bg3);color:var(--text);padding:8px 10px}
+button.btn.warn{border-color:#4a0f1f;color:var(--red)}button.btn.ok{border-color:#0b3a52;color:var(--sky)}
+.actions{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
 canvas{max-height:220px}
+input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg3);color:#fff;font-family:'JetBrains Mono',monospace;font-size:13px;margin:6px 0 10px}
+#login{position:fixed;inset:0;background:var(--bg);display:none;align-items:center;justify-content:center;z-index:20;padding:20px}
+#login form{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:22px;width:100%;max-width:360px}
+#login h2{font-family:'Orbitron',sans-serif;font-size:13px;letter-spacing:.14em;color:#fff;margin-bottom:12px}
+#login label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+#login button{width:100%;padding:11px;border-radius:8px;border:0;background:var(--sky);color:#031018;font-weight:700;font-family:'DM Sans',sans-serif}
 .err{background:#2a0a14;border:1px solid #4a0f1f;color:var(--red);padding:10px;border-radius:10px;font-size:12px;margin:10px 0}
+.ago{color:var(--dim);font-size:11px}
 </style>
 </head>
 <body>
-<header><h1>APEX<span>PM</span> WALLSTREET</h1><span id="mode" class="badge">…</span></header>
+<div id="login"><form onsubmit="return doLogin()">
+  <h2>APEXPM WALLSTREET</h2>
+  <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
+  <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
+  <button>Sign in</button>
+  <p id="l_err" class="err" style="display:none"></p>
+</form></div>
+
+<header>
+  <div class="hbar"><img src="/icons/icon-192.png" alt="" onerror="this.style.display='none'"><h1>APEX<span>PM</span></h1>
+    <span id="mode" class="chip off">…</span><span id="profchip" class="chip research" title="risk profile">…</span>
+    <span class="heq" id="heq">—</span></div>
+  <nav class="tabs" id="tabs">
+    <button data-tab="overview" class="on">Overview</button><button data-tab="positions">Positions</button>
+    <button data-tab="activity">Activity</button><button data-tab="analytics">Analytics</button>
+    <button data-tab="reports">Reports</button><button data-tab="settings">Settings</button>
+  </nav>
+</header>
 <main>
 <div id="err" class="err" style="display:none"></div>
 
-<section id="home" class="active">
-  <h2>Overview</h2>
-  <div class="tiles">
-    <div class="tile"><div class="k">Realized P&L</div><div class="v" id="pnl">—</div></div>
-    <div class="tile"><div class="k">Total R</div><div class="v" id="totalr">—</div></div>
-    <div class="tile"><div class="k">Win rate</div><div class="v" id="win">—</div></div>
-    <div class="tile"><div class="k">Expectancy</div><div class="v" id="exp">—</div></div>
-    <div class="tile"><div class="k">Open trades</div><div class="v" id="open">—</div></div>
-    <div class="tile"><div class="k">Closed</div><div class="v" id="closed">—</div></div>
-    <div class="tile"><div class="k">Max DD</div><div class="v" id="dd">—</div></div>
-    <div class="tile"><div class="k">Start equity</div><div class="v" id="eq">—</div></div>
-  </div>
-  <h2>R curve</h2>
-  <div class="card"><canvas id="curve"></canvas></div>
-  <h2>Today's levels</h2>
-  <div class="card" id="plan"><div class="empty">No pre-market plan yet. Run the bot or <span class="mono">--levels</span>.</div></div>
+<section id="overview" class="active">
+  <div id="banner" class="banner">Paper trading only. Nothing here can touch real money.</div>
+  <div class="grid"><div>
+    <div class="card"><h3>Today <span class="ago" id="todaydate"></span></h3>
+      <div class="kv">
+        <div><div class="k">Equity</div><div class="v" id="t_eq">—</div></div>
+        <div><div class="k">Day P&L</div><div class="v" id="t_pnl">—</div></div>
+        <div><div class="k">Loss budget left</div><div class="v" id="t_budget">—</div></div>
+        <div><div class="k">Open positions</div><div class="v" id="t_open">—</div></div>
+        <div><div class="k">In open positions</div><div class="v sm" id="t_inopen">—</div></div>
+        <div><div class="k">Unrealized P&L</div><div class="v" id="t_unreal">—</div></div>
+        <div><div class="k">Cash</div><div class="v sm" id="t_cash">—</div></div>
+        <div><div class="k">Trades today</div><div class="v" id="t_trades">—</div></div>
+        <div><div class="k">Pending orders</div><div class="v" id="t_pending">—</div></div>
+      </div></div>
+    <div class="card"><h3>Risk profile <span id="profchip2" class="chip research">…</span></h3>
+      <div class="seg" id="seg"></div><p id="profblurb"></p>
+      <div id="eff" style="margin-top:8px"></div></div>
+    <div class="card"><h3>R curve <span class="ago">all closed trades</span></h3><canvas id="curve"></canvas></div>
+  </div><div>
+    <div class="card"><h3>Bot <span id="alive" class="chip off">…</span></h3><div id="botcard"></div></div>
+    <div class="card"><h3>Paper account</h3><div id="acct"></div></div>
+    <div class="card" id="plan"><h3>Today's levels</h3><div class="empty">No pre-market plan yet.</div></div>
+  </div></div>
 </section>
 
-<section id="strats">
-  <h2>Strategies</h2>
-  <div id="stratlist"></div>
-  <h2>Governance events</h2>
-  <div class="card tbl" id="events"></div>
+<section id="positions"><div class="card tbl" id="poslist"></div></section>
+
+<section id="activity">
+  <div class="card tbl"><h3>Trade journal</h3><div id="trades"></div></div>
+  <div class="card tbl"><h3>Rejections <span class="ago">7 days</span></h3><div id="rej"></div></div>
+  <div class="card tbl"><h3>Governance events</h3><div id="events"></div></div>
 </section>
 
-<section id="journal">
-  <h2>Trade journal</h2>
-  <div class="card tbl" id="trades"></div>
-  <h2>Rejections (7 days)</h2>
-  <div class="card tbl" id="rej"></div>
-</section>
+<section id="analytics"><div id="ana"></div></section>
+<section id="reports"><div id="reportlist"></div></section>
 
-<section id="reports">
-  <h2>Daily reports</h2>
-  <div id="reportlist"></div>
+<section id="settings">
+  <div class="card"><h3>Strategies</h3><div id="stratlist"></div></div>
+  <div class="card"><h3>Connection</h3>
+    <p>API address: <span class="mono" id="s_api">(this server)</span></p>
+    <div class="actions"><button class="btn" onclick="logout()">Sign out</button></div></div>
 </section>
 </main>
 
-<nav>
-  <button data-tab="home" class="on"><i></i>Home</button>
-  <button data-tab="strats"><i></i>Strategies</button>
-  <button data-tab="journal"><i></i>Journal</button>
-  <button data-tab="reports"><i></i>Reports</button>
-</nav>
-
 <script>
 const $ = s => document.querySelector(s);
-const fmt = (n, d=2) => n==null ? '—' : Number(n).toFixed(d);
-const money = n => n==null ? '—' : (n<0?'-':'') + '$' + Math.abs(n).toFixed(2);
+const LS = { get api(){ try{return localStorage.getItem('apexpm_api')||''}catch(e){return ''} }, set api(v){ try{localStorage.setItem('apexpm_api',v)}catch(e){} },
+             get tok(){ try{return localStorage.getItem('apexpm_token')||''}catch(e){return ''} }, set tok(v){ try{localStorage.setItem('apexpm_token',v)}catch(e){} } };
+const fmt = (n,d=2) => n==null ? '—' : Number(n).toFixed(d);
+const money = n => n==null ? '—' : (n<0?'-':'') + '$' + Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 const cls = n => n==null ? '' : n>0 ? 'pos' : n<0 ? 'neg' : '';
+const ago = s => s==null ? '—' : s<60 ? s+'s ago' : s<3600 ? Math.round(s/60)+'m ago' : Math.round(s/3600)+'h ago';
 let chart;
 
-async function api(p, opts){ const r = await fetch(p, opts); if(!r.ok) throw new Error(p+' '+r.status); return r.json(); }
-function showErr(e){ const el=$('#err'); el.style.display='block'; el.textContent='Dashboard error: '+e.message; }
+async function api(p, opts={}){
+  const base = LS.api; const headers = Object.assign({}, opts.headers||{});
+  if (LS.tok) headers['Authorization'] = 'Bearer ' + LS.tok;
+  const r = await fetch(base + p, Object.assign({}, opts, {headers}));
+  if (r.status === 401) { showLogin(); throw new Error('unauthorized'); }
+  if (!r.ok) throw new Error(p+' '+r.status);
+  return r.json();
+}
+function showLogin(){ $('#login').style.display='flex'; $('#l_api').value = LS.api; }
+function doLogin(){ LS.api = $('#l_api').value.trim().replace(/\/$/,''); LS.tok = $('#l_tok').value.trim(); $('#login').style.display='none'; loadAll().catch(e=>{ $('#l_err').textContent='Could not sign in: '+e.message; $('#l_err').style.display='block'; showLogin(); }); return false; }
+function logout(){ LS.tok=''; showLogin(); }
+function showErr(e){ if(e.message==='unauthorized') return; const el=$('#err'); el.style.display='block'; el.textContent='Dashboard error: '+e.message; }
+
+function renderBot(b){
+  const alive = $('#alive'); alive.textContent = b.alive ? 'running' : 'offline'; alive.className = 'chip ' + (b.alive?'live':'suspended');
+  const reg = Object.entries(b.regime||{}).map(([s,r])=>`${s}: ${r||'—'}`).join(' · ') || '—';
+  $('#botcard').innerHTML = `
+    <div class="row"><span>Market</span><b>${b.market||'—'}</b></div>
+    <div class="row"><span>Regime</span><b>${reg}</b></div>
+    <div class="row"><span>Strategies on</span><b style="white-space:normal;text-align:right">${(b.strategies_on||[]).join(', ')||'none'}</b></div>
+    <div class="row"><span>Live-armed strategies</span><b>${(b.live_armed||[]).join(', ')||'none'}</b></div>
+    <div class="row"><span>Kill switch</span><b>${b.halted?'<span class="neg">HALTED</span>':'armed · '+(b.effective.kill_dd_pct*100).toFixed(0)+'% DD'}</b></div>
+    <div class="row"><span>Updated</span><b class="ago">${ago(b.heartbeat_age_sec)}</b></div>`;
+  ['#profchip','#profchip2'].forEach(s=>{ $(s).textContent=b.profile; $(s).className='chip '+(b.profile==='growth'?'live':b.profile==='conservative'?'suspended':'paper'); });
+  const e = b.effective;
+  $('#eff').innerHTML = `
+    <div class="row"><span>Risk per trade</span><b>${(e.max_pos_pct*100).toFixed(2)}% of equity</b></div>
+    <div class="row"><span>Max trades / day</span><b>${e.max_trades_per_day}</b></div>
+    <div class="row"><span>Max open positions</span><b>${e.max_positions}</b></div>
+    <div class="row"><span>Kelly fraction</span><b>×${fmt(e.kelly_fraction,2)}</b></div>
+    <div class="row"><span>Daily loss cap</span><b>${money(e.max_daily_loss)}</b></div>
+    <div class="row"><span>Stop cooldown</span><b>${e.stop_cooldown_min} min</b></div>
+    <p style="margin-top:8px">Hard ceilings in config still apply on every profile.</p>`;
+}
 
 async function loadHome(){
   const o = await api('/api/overview');
-  const m = $('#mode'); m.textContent = o.mode; m.className = 'badge ' + (o.dry_run?'dry':o.paper?'paper':'live');
-  $('#pnl').textContent = money(o.realized_pnl); $('#pnl').className='v '+cls(o.realized_pnl);
-  $('#totalr').textContent = fmt(o.total_r); $('#totalr').className='v '+cls(o.total_r);
-  $('#win').textContent = o.win_rate==null?'—':Math.round(o.win_rate*100)+'%';
-  $('#exp').textContent = o.expectancy_r==null?'—':(o.expectancy_r>=0?'+':'')+fmt(o.expectancy_r)+'R';
-  $('#exp').className='v '+cls(o.expectancy_r);
-  $('#open').textContent = o.open; $('#closed').textContent = o.closed;
-  $('#dd').textContent = fmt(o.max_dd_r)+'R'; $('#eq').textContent = o.starting_equity? money(+o.starting_equity):'—';
+  const m = $('#mode'); m.textContent = o.dry_run?'DRY RUN':o.paper?'Paper':'LIVE'; m.className='chip '+(o.dry_run?'dry':o.paper?'paper':'live');
+  const a = o.account; const eq = a.connected ? a.equity : null;
+  $('#heq').textContent = eq!=null ? money(eq) : '—';
+  $('#todaydate').textContent = o.today.date;
+  $('#t_eq').textContent = eq!=null ? money(eq) : '—';
+  $('#t_pnl').textContent = money(o.today.realized_pnl); $('#t_pnl').className='v '+cls(o.today.realized_pnl);
+  $('#t_budget').textContent = money(o.today.loss_budget_left);
+  $('#t_open').textContent = `${o.today.open_positions} / ${o.today.max_positions}`;
+  $('#t_inopen').textContent = money(o.today.in_open_notional);
+  $('#t_unreal').textContent = money(o.today.unrealized_pnl); $('#t_unreal').className='v '+cls(o.today.unrealized_pnl);
+  $('#t_cash').textContent = a.connected ? money(a.cash) : '—';
+  $('#t_trades').textContent = o.today.trades; $('#t_pending').textContent = o.today.pending;
+  const bn = $('#banner');
+  if (o.dry_run) { bn.className='banner warn'; bn.textContent='DRY RUN. Signals are journaled; no orders are sent.'; }
+  else if (o.paper) { bn.className='banner'; bn.textContent='Paper trading only. Nothing here can touch real money.'; }
+  else { bn.className='banner bad'; bn.textContent='LIVE. Real money.'; }
+  renderBot(o.bot);
+  $('#acct').innerHTML = a.connected ? `
+    <div class="row"><span>Equity</span><b>${money(a.equity)}</b></div>
+    <div class="row"><span>Cash</span><b>${money(a.cash)}</b></div>
+    <div class="row"><span>Buying power</span><b>${money(a.buying_power)}</b></div>
+    <div class="row"><span>Realized P&L (all time)</span><b class="${cls(o.all_time.realized_pnl)}">${money(o.all_time.realized_pnl)}</b></div>
+    <div class="row"><span>Closed trades</span><b>${o.all_time.closed} · win ${o.all_time.win_rate==null?'—':Math.round(o.all_time.win_rate*100)+'%'}</b></div>
+    <div class="row"><span>Expectancy</span><b class="${cls(o.all_time.expectancy_r)}">${o.all_time.expectancy_r==null?'—':(o.all_time.expectancy_r>=0?'+':'')+fmt(o.all_time.expectancy_r)+'R'}</b></div>
+    <div class="row"><span>Max drawdown</span><b>${fmt(o.all_time.max_dd_r,1)}R</b></div>
+    <div class="row"><span>Started with</span><b>${o.starting_equity?money(o.starting_equity):'—'}</b></div>`
+    : `<div class="empty">Broker not connected on the API server${a.error?': '+a.error:''}.</div>`;
   const labels = o.curve.map((_,i)=>i+1), data = o.curve.map(p=>p.r);
   if(chart) chart.destroy();
   chart = new Chart($('#curve'), {type:'line', data:{labels, datasets:[{data, borderColor:'#38bdf8', backgroundColor:'rgba(56,189,248,.12)', fill:true, tension:.25, pointRadius:0, borderWidth:2}]},
-    options:{plugins:{legend:{display:false}}, scales:{x:{display:false}, y:{grid:{color:'#1c1c3a'}, ticks:{color:'#6b7299', font:{family:'JetBrains Mono', size:10}}}}, animation:false}});
+    options:{plugins:{legend:{display:false}}, scales:{x:{display:false}, y:{grid:{color:'#222b48'}, ticks:{color:'#6b7299', font:{family:'JetBrains Mono', size:10}}}}, animation:false}});
   const plan = await api('/api/plan');
   if(plan){
-    const lv = plan.levels, ks = ['2.0','1.5','1.0','0.5'];
-    let h = `<div class="lv anchor"><span>${plan.symbol} anchor · ATR ${fmt(lv.atr)}</span><b>${fmt(lv.anchor)}</b></div>`;
-    h += '<div class="levels">';
+    const lv = plan.levels, ks = Object.keys(lv).filter(k=>k.startsWith('+')).map(k=>k.slice(1)).sort((a,b)=>b-a);
+    let h = `<div class="lv anchor"><span>${plan.symbol} anchor · ATR ${fmt(lv.atr)}</span><b>${fmt(lv.anchor)}</b></div><div class="levels">`;
     ks.forEach(k=>{ h += `<div class="lv up"><span>+${k}</span><b>${fmt(lv['+'+k])}</b></div><div class="lv dn"><span>−${k}</span><b>${fmt(lv['-'+k])}</b></div>`; });
-    h += '</div>';
-    $('#plan').innerHTML = `<p style="margin-bottom:8px">${plan.date}</p>` + h;
+    $('#plan').innerHTML = `<h3>Today's levels <span class="ago">${plan.date}</span></h3>` + h + '</div>';
   }
+  const st = await api('/api/settings');
+  $('#seg').innerHTML = Object.keys(st.profiles).map(k=>`<button class="${k===st.profile?'on':''}" onclick="setProfile('${k}')">${k}</button>`).join('');
+  $('#profblurb').textContent = st.profiles[st.profile].blurb;
+}
+async function setProfile(name){
+  const note = prompt('Why switch to '+name+'? (recorded as a governance event)') ; if(note===null) return;
+  const r = await api('/api/settings/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile:name,note})});
+  if(!r.ok) alert(r.error); loadHome().catch(showErr);
 }
 
-async function loadStrats(){
-  const ss = await api('/api/strategies');
-  $('#stratlist').innerHTML = ss.map(s=>{
-    const st = s.stats;
-    const stats = st ? `<div class="stats">
-      <div><div class="k">Trades</div><div class="v">${st.trades}</div></div>
-      <div><div class="k">Win</div><div class="v">${Math.round(st.win_rate*100)}%</div></div>
-      <div><div class="k">Exp</div><div class="v ${cls(st.expectancy_r)}">${(st.expectancy_r>=0?'+':'')+fmt(st.expectancy_r)}R</div></div>
-      <div><div class="k">PF</div><div class="v">${st.profit_factor===Infinity||st.profit_factor==='inf'?'∞':fmt(st.profit_factor)}</div></div>
-      <div><div class="k">Max DD</div><div class="v">${fmt(st.max_dd_r,1)}R</div></div>
-      <div><div class="k">Discipline</div><div class="v">${Math.round(st.level_discipline*100)}%</div></div></div>` : '<div class="empty">No closed trades yet.</div>';
-    const act = s.status==='suspended' || s.status==='research'
-      ? `<button class="ok" onclick="setStatus('${s.name}','paper')">Promote to paper</button>`
-      : `<button class="warn" onclick="setStatus('${s.name}','suspended')">Suspend</button>`;
-    return `<div class="card"><h3>${s.name}<span class="chip ${s.status}">${s.status}</span></h3><p>${s.description}</p>
-      <p class="mono">mode ${s.mode} · ${s.symbols.join(', ')}</p>${stats}<div class="actions">${act}
-      <button onclick="setStatus('${s.name}','research')">To research</button></div></div>`;
-  }).join('');
-  const ev = await api('/api/events');
-  $('#events').innerHTML = ev.length ? '<table><tr><th>When</th><th>Strategy</th><th>Event</th><th>Detail</th></tr>' +
-    ev.map(e=>`<tr><td>${e.ts.slice(0,16).replace('T',' ')}</td><td>${e.name}</td><td>${e.event}</td><td style="white-space:normal">${e.detail||''}</td></tr>`).join('') + '</table>' : '<div class="empty">No events.</div>';
+async function loadPositions(){
+  const ps = await api('/api/positions');
+  $('#poslist').innerHTML = `<h3>Open & pending <span class="ago">${ps.length} rows</span></h3>` + (ps.length ? '<table><tr><th>#</th><th>Status</th><th>Setup</th><th>Dir</th><th>Qty</th><th>Entry</th><th>Last</th><th>Unreal</th><th>R</th><th>To target</th><th>To stop</th><th>Held</th><th>Max hold</th></tr>' +
+    ps.map(t=>`<tr><td>${t.id}</td><td>${t.status}</td><td>${t.setup}</td><td>${t.direction}</td><td>${t.qty}</td><td>${fmt(t.entry)}</td><td>${fmt(t.last_price)}</td><td class="${cls(t.unrealized_pnl)}">${t.unrealized_pnl==null?'—':money(t.unrealized_pnl)}</td><td class="${cls(t.unrealized_r)}">${fmt(t.unrealized_r)}</td><td>${fmt(t.to_target)}</td><td>${fmt(t.to_stop)}</td><td>${t.held_min==null?'—':t.held_min+'m'}</td><td>${t.max_hold_min}m</td></tr>`).join('') + '</table>'
+    : '<div class="empty">No open or pending positions.</div>');
 }
 
-async function setStatus(name, status){
-  const note = status==='paper' ? prompt('Why promote '+name+'? (recorded)') : '';
-  if(status==='paper' && note===null) return;
-  const r = await api('/api/strategy/status', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, status, note: note||''})});
-  if(!r.ok) alert(r.error); loadStrats();
-}
-
-async function loadJournal(){
+async function loadActivity(){
   const ts = await api('/api/trades');
-  $('#trades').innerHTML = ts.length ? '<table><tr><th>#</th><th>Opened</th><th>Setup</th><th>Dir</th><th>Qty</th><th>Entry</th><th>Stop</th><th>Target</th><th>Exit</th><th>Reason</th><th>R</th><th>P&L</th><th>Mode</th></tr>' +
-    ts.map(t=>`<tr><td>${t.id}</td><td>${t.opened_at.slice(5,16).replace('T',' ')}</td><td>${t.setup}</td><td>${t.direction}</td><td>${t.qty}</td><td>${fmt(t.entry)}</td><td>${fmt(t.stop)}</td><td>${fmt(t.target)}</td><td>${fmt(t.exit_price)}</td><td>${t.exit_reason||'open'}</td><td class="${cls(t.rr_realized)}">${t.rr_realized==null?'—':fmt(t.rr_realized)}</td><td class="${cls(t.pnl)}">${t.pnl==null?'—':money(t.pnl)}</td><td>${t.mode}</td></tr>`).join('') + '</table>' : '<div class="empty">No trades journaled yet.</div>';
+  $('#trades').innerHTML = ts.length ? '<table><tr><th>#</th><th>Opened</th><th>Setup</th><th>Dir</th><th>Qty</th><th>Entry</th><th>Stop</th><th>Target</th><th>Exit</th><th>Reason</th><th>R</th><th>P&L</th><th>Mode</th><th>Status</th></tr>' +
+    ts.map(t=>`<tr><td>${t.id}</td><td>${t.opened_at.slice(5,16).replace('T',' ')}</td><td>${t.setup}</td><td>${t.direction}</td><td>${t.qty}</td><td>${fmt(t.entry)}</td><td>${fmt(t.stop)}</td><td>${fmt(t.target)}</td><td>${fmt(t.exit_price)}</td><td>${t.exit_reason||''}</td><td class="${cls(t.rr_realized)}">${t.rr_realized==null?'—':fmt(t.rr_realized)}</td><td class="${cls(t.pnl)}">${t.pnl==null?'—':money(t.pnl)}</td><td>${t.mode}</td><td>${t.status}</td></tr>`).join('') + '</table>' : '<div class="empty">No trades journaled yet.</div>';
   const rj = await api('/api/rejections');
-  $('#rej').innerHTML = rj.length ? '<table><tr><th>Date</th><th>Setup</th><th>Reason</th><th>N</th></tr>' +
-    rj.map(r=>`<tr><td>${r.date}</td><td>${r.setup}</td><td>${r.reason}</td><td>${r.n}</td></tr>`).join('') + '</table>' : '<div class="empty">No rejections in the last 7 days.</div>';
+  $('#rej').innerHTML = rj.length ? '<table><tr><th>Date</th><th>Setup</th><th>Reason</th><th>N</th></tr>' + rj.map(r=>`<tr><td>${r.date}</td><td>${r.setup}</td><td>${r.reason}</td><td>${r.n}</td></tr>`).join('') + '</table>' : '<div class="empty">No rejections in the last 7 days.</div>';
+  const ev = await api('/api/events');
+  $('#events').innerHTML = ev.length ? '<table><tr><th>When</th><th>Who</th><th>Event</th><th>Detail</th></tr>' + ev.map(e=>`<tr><td>${(e.ts||'').slice(0,16).replace('T',' ')}</td><td>${e.name}</td><td>${e.event}</td><td style="white-space:normal">${e.detail||''}</td></tr>`).join('') + '</table>' : '<div class="empty">No events.</div>';
+}
+
+function tbl(title, rows){
+  if(!rows.length) return '';
+  return `<div class="card tbl"><h3>${title}</h3><table><tr><th>Key</th><th>N</th><th>Win</th><th>Exp R</th><th>Total R</th><th>PF</th></tr>` +
+    rows.map(r=>`<tr><td>${r.key}</td><td>${r.n}</td><td>${Math.round(r.win*100)}%</td><td class="${cls(r.exp_r)}">${fmt(r.exp_r,3)}</td><td class="${cls(r.total_r)}">${fmt(r.total_r,2)}</td><td>${r.pf==null?'∞':fmt(r.pf,2)}</td></tr>`).join('') + '</table></div>';
+}
+async function loadAnalytics(){
+  const a = await api('/api/analytics');
+  $('#ana').innerHTML = a.n ? tbl('By strategy', a.by_strategy) + tbl('By direction', a.by_direction) + tbl('By hour (ET)', a.by_hour) + tbl('By weekday', a.by_weekday) + tbl('By exit reason', a.by_exit) + tbl('By regime', a.by_regime)
+    : '<div class="card"><div class="empty">Analytics appear once trades close.</div></div>';
 }
 
 async function loadReports(){
   const rs = await api('/api/reports');
-  $('#reportlist').innerHTML = rs.length ? rs.map(r=>`<div class="card"><h3>${r.date}<span class="chip ${ (r.realized_pnl||0)>=0?'live':'suspended'}">${money(r.realized_pnl)}</span></h3>
-    <p class="mono">trades ${r.trades} · wins ${r.wins} · overholds ${r.overholds} · rejections ${r.rejections}</p><details style="margin-top:8px"><summary style="font-size:12px;color:var(--dim)">Full report</summary><pre>${(r.notes||'').replace(/</g,'&lt;')}</pre></details></div>`).join('') : '<div class="empty">No daily reports yet. Run <span class="mono">--review</span> after the close.</div>';
+  $('#reportlist').innerHTML = rs.length ? rs.map(r=>`<div class="card"><h3>${r.date}<span class="chip ${(r.realized_pnl||0)>=0?'live':'suspended'}">${money(r.realized_pnl)}</span></h3>
+    <p class="mono">trades ${r.trades} · wins ${r.wins} · overholds ${r.overholds} · rejections ${r.rejections}</p><details style="margin-top:8px"><summary style="font-size:12px;color:var(--dim)">Full report</summary><pre>${(r.notes||'').replace(/</g,'&lt;')}</pre></details></div>`).join('')
+    : '<div class="card"><div class="empty">No daily reports yet. The bot writes one after each session\'s review.</div></div>';
 }
 
-const loaders = {home: loadHome, strats: loadStrats, journal: loadJournal, reports: loadReports};
-document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+async function loadSettings(){
+  const ss = await api('/api/strategies');
+  $('#stratlist').innerHTML = ss.map(s=>{
+    const st = s.stats;
+    const stats = st ? `<div class="kv" style="margin-top:8px"><div><div class="k">Trades</div><div class="v sm">${st.trades}</div></div><div><div class="k">Win</div><div class="v sm">${Math.round(st.win_rate*100)}%</div></div><div><div class="k">Exp</div><div class="v sm ${cls(st.expectancy_r)}">${(st.expectancy_r>=0?'+':'')+fmt(st.expectancy_r)}R</div></div></div>` : '<p>No closed trades yet.</p>';
+    const act = (s.status==='suspended'||s.status==='research') ? `<button class="btn ok" onclick="setStatus('${s.name}','paper')">Promote to paper</button>` : `<button class="btn warn" onclick="setStatus('${s.name}','suspended')">Suspend</button>`;
+    return `<div class="card" style="background:var(--bg3)"><h3>${s.name}<span class="chip ${s.status}">${s.status}</span></h3><p>${s.description}</p><p class="mono">mode ${s.mode} · ${s.symbols.join(', ')}</p>${stats}<div class="actions">${act}<button class="btn" onclick="setStatus('${s.name}','research')">To research</button></div></div>`;
+  }).join('');
+  $('#s_api').textContent = LS.api || '(this server)';
+}
+async function setStatus(name, status){
+  const note = status==='paper' ? prompt('Why promote '+name+'? (recorded)') : '';
+  if(status==='paper' && note===null) return;
+  const r = await api('/api/strategy/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,status,note:note||''})});
+  if(!r.ok) alert(r.error); loadSettings().catch(showErr);
+}
+
+const loaders = {overview: loadHome, positions: loadPositions, activity: loadActivity, analytics: loadAnalytics, reports: loadReports, settings: loadSettings};
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
   document.querySelectorAll('section').forEach(s=>s.classList.remove('active')); $('#'+b.dataset.tab).classList.add('active');
   loaders[b.dataset.tab]().catch(showErr);
 });
-if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
-loadHome().catch(showErr);
-setInterval(()=>{ const on=document.querySelector('nav button.on').dataset.tab; loaders[on]().catch(()=>{}); }, 30000);
+async function loadAll(){ await loadHome(); }
+(function boot(){
+  const q = new URLSearchParams(location.search);
+  if (q.get('token')) { LS.tok = q.get('token'); history.replaceState({}, '', location.pathname); }
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
+  loadAll().catch(showErr);
+  setInterval(()=>{ const on=document.querySelector('#tabs button.on').dataset.tab; loaders[on]().catch(()=>{}); }, 30000);
+})();
 </script>
 </body>
 </html>
