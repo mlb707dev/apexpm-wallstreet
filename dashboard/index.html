@@ -99,7 +99,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 14</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 15</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -147,6 +147,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div><div>
     <div class="card"><h3>Bot <span id="alive" class="chip off">…</span></h3><div id="botcard"></div></div>
     <div class="card"><h3>Paper account</h3><div id="acct"></div></div>
+    <div class="card"><h3>Headlines <span class="ago">last 36h · traded symbols + watch list</span></h3><div id="news" class="empty">Loading…</div></div>
     <div class="card" id="rangecard"><h3>Today's range <span class="ago" id="rangenote"></span></h3><div id="range" class="empty">Waiting for the open.</div></div>
     <div class="card" id="plan"><h3>ATR levels</h3><div class="empty">No pre-market plan yet.</div></div>
   </div></div>
@@ -293,6 +294,11 @@ async function loadHome(){
   if(chart) chart.destroy();
   chart = new Chart($('#curve'), {type:'line', data:{labels, datasets:[{data, borderColor:'#38bdf8', backgroundColor:'rgba(56,189,248,.12)', fill:true, tension:.25, pointRadius:0, borderWidth:2}]},
     options:{plugins:{legend:{display:false}}, scales:{x:{display:false}, y:{grid:{color:'#222b48'}, ticks:{color:'#6b7299', font:{family:'JetBrains Mono', size:10}}}}, animation:false}});
+  try {
+    const nw = await api('/api/news');
+    $('#news').className = nw.length ? '' : 'empty';
+    $('#news').innerHTML = nw.length ? nw.map(n=>`<div class="row" style="align-items:flex-start"><span style="white-space:normal;padding-right:8px"><a href="${n.url||'#'}" target="_blank" rel="noopener" style="color:#fff;text-decoration:none">${n.headline}</a><br><span class="ago">${(n.created_at||'').slice(5,16).replace('T',' ')} · ${n.source||''} · ${(n.symbols||[]).slice(0,5).join(' ')}</span></span></div>`).join('') : 'No headlines yet.';
+  } catch(e) {}
   const plan = await api('/api/plan');
   if(plan){
     const lv = plan.levels;

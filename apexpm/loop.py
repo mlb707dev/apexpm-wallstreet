@@ -33,6 +33,7 @@ from .registry import Registry
 from .ribbon import ribbon_from_closes
 from .sizing import size_trade
 from .stream import FastLayer
+from .news import NewsFeed
 from .options_exec import OptionsWrapper, size_contracts
 from .strategies import ExampleBreakout
 from .strategies.base import MarketSnapshot, Signal
@@ -56,6 +57,7 @@ class Bot:
             chain = (lambda u, a, b: self.obroker.chain(u, a, b)) if self.obroker.connected else (lambda u, a, b: [])
             self.registry.register(OptionsWrapper(ExampleBreakout(), chain, min_dte=cfg.opt_min_dte, max_dte=cfg.opt_max_dte), "research")
         self.webhook: Optional[WebhookServer] = None
+        self.news = NewsFeed(cfg, self.journal) if cfg.news_enabled else None
         self.state: Optional[riskmod.RiskState] = None
         self._levels: Dict[str, LevelMap] = {}
         self._reached: Dict[str, Dict[str, float]] = {}
@@ -259,6 +261,8 @@ class Bot:
 
         self._poll_pending(now_utc)
         self._track_vix(now_utc)
+        if self.news:
+            self.news.refresh(now_utc)
 
         taken: List[Signal] = []
         for symbol in self.cfg.symbols:

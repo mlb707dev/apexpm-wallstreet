@@ -59,6 +59,8 @@ class Config:
     # Universe and session
     symbols: List[str] = field(default_factory=lambda: _list("SYMBOLS", ["SPY", "QQQ"]))
     track_vix: bool = field(default_factory=lambda: _b("TRACK_VIX", True))
+    news_enabled: bool = field(default_factory=lambda: _b("NEWS_ENABLED", True))
+    news_watchlist: List[str] = field(default_factory=lambda: _list("NEWS_WATCHLIST", ["NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA", "AMD", "AVGO", "NFLX", "JPM"]))
     crypto_symbols: List[str] = field(default_factory=lambda: [x.upper() for x in (os.getenv("CRYPTO_SYMBOLS") or "BTC/USD,ETH/USD,XRP/USD").split(",") if x.strip()])
     scan_interval_sec: int = field(default_factory=lambda: _i("SCAN_INTERVAL_SEC", 15))
     stream_enabled: bool = field(default_factory=lambda: _b("STREAM_ENABLED", True))

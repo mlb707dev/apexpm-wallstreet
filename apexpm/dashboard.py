@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import calendar as cal
 from . import profiles
+from .news import NewsFeed
 from .config import Config
 from .db import Journal, et_date
 from .registry import Registry
@@ -42,6 +43,7 @@ class Api:
         self.reg = Registry(journal, cfg)
         self.reg.register(ExampleBreakout(), "paper")
         cal.ensure_table(journal)
+        self._news = NewsFeed(cfg, journal) if cfg.news_enabled else None
         self._broker = None
         if cfg.alpaca_api_key and cfg.alpaca_secret_key:
             try:
@@ -207,6 +209,18 @@ class Api:
             return {"ok": False, "error": "bad_status"}
         self.reg.resolve(int(decision_id), status, f"dashboard: {note}" if note else "dashboard")
         return {"ok": True}
+
+    def news(self) -> list:
+        if not self._news:
+            return []
+        out = []
+        for n in self._news.latest(15, 36):
+            try:
+                n["symbols"] = json.loads(n.get("symbols") or "[]")
+            except Exception:  # noqa: BLE001
+                n["symbols"] = []
+            out.append(n)
+        return out
 
     def set_paused(self, paused: bool, note: str) -> Dict[str, Any]:
         profiles.set_entries_paused(self.j, paused, f"dashboard: {note}" if note else "dashboard")
@@ -413,7 +427,7 @@ def make_handler(api: Api, token: str = ""):
                 "/api/trades": api.trades, "/api/strategies": api.strategies, "/api/analytics": api.analytics,
                 "/api/rejections": api.rejections, "/api/events": api.events, "/api/reports": api.reports,
                 "/api/plan": api.plan, "/api/settings": api.settings, "/api/calendar": api.calendar,
-                "/api/decisions": api.decisions,
+                "/api/decisions": api.decisions, "/api/news": api.news,
             }
             if path in routes:
                 try:
