@@ -301,10 +301,16 @@ document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
   loaders[b.dataset.tab]().catch(showErr);
 });
 async function loadAll(){ await loadHome(); }
-(function boot(){
+(async function boot(){
   const q = new URLSearchParams(location.search);
   if (q.get('token')) { LS.tok = q.get('token'); history.replaceState({}, '', location.pathname); }
   if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
+  // A statically hosted front-end has no API of its own: ask for the API address first.
+  if (!LS.api) {
+    let ok = false;
+    try { const r = await fetch('/api/health', {cache:'no-store'}); ok = r.ok && (await r.json()).ok === true; } catch(e) {}
+    if (!ok) { showLogin(); return; }
+  }
   loadAll().catch(showErr);
   setInterval(()=>{ const on=document.querySelector('#tabs button.on').dataset.tab; loaders[on]().catch(()=>{}); }, 30000);
 })();
