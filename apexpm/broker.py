@@ -215,6 +215,28 @@ class OptionsBroker:
         log.info("option sell_to_close %s x%d id=%s", occ, qty, o.id)
         return str(o.id)
 
+    def greeks(self, occ: str) -> Optional[dict]:
+        """Snapshot greeks + IV for one contract (Alpaca computes them on the indicative feed). None on failure."""
+        from alpaca.data.requests import OptionSnapshotRequest
+        try:
+            snaps = self._data.get_option_snapshot(OptionSnapshotRequest(symbol_or_symbols=occ, feed="indicative"))
+            snap = snaps.get(occ)
+            if snap is None:
+                return None
+            g = getattr(snap, "greeks", None)
+            out = {k: round(float(getattr(g, k)), 4) for k in ("delta", "gamma", "theta", "vega", "rho")
+                   if g is not None and getattr(g, k, None) is not None}
+            iv = getattr(snap, "implied_volatility", None)
+            if iv is not None:
+                out["iv"] = round(float(iv), 4)
+            q = getattr(snap, "latest_quote", None)
+            if q is not None and q.bid_price and q.ask_price:
+                out["bid"], out["ask"] = float(q.bid_price), float(q.ask_price)
+            return out or None
+        except Exception as exc:  # noqa: BLE001
+            log.warning("option greeks failed %s: %s", occ, exc)
+            return None
+
     def mark(self, occ: str) -> Optional[float]:
         """Mid of the latest quote, or None."""
         from alpaca.data.requests import OptionLatestQuoteRequest

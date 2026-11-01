@@ -99,7 +99,7 @@ class Config:
     kill_dd_pct: float = field(default_factory=lambda: _f("KILL_DD_PCT", 0.05))
     max_daily_loss: float = field(default_factory=lambda: _f("MAX_DAILY_LOSS", 200.0))
     max_trades_per_day: int = field(default_factory=lambda: _i("MAX_TRADES_PER_DAY", 4))
-    max_positions: int = field(default_factory=lambda: _i("MAX_POSITIONS", 2))
+    max_positions: int = field(default_factory=lambda: _i("MAX_POSITIONS", 3))
     stop_cooldown_min: int = field(default_factory=lambda: _i("STOP_COOLDOWN_MIN", 30))
     live_abort_delay_sec: int = field(default_factory=lambda: _i("LIVE_ABORT_DELAY_SEC", 10))
 

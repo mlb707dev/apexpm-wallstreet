@@ -8,6 +8,28 @@ from zoneinfo import ZoneInfo
 ET = ZoneInfo("America/New_York")
 
 
+def greeks_line(t) -> str:
+    """'greeks at buy Δ0.52 Γ0.08 Θ-0.21 ν0.05 IV 18% VIX 16.2 → at sell Δ0.61 … ' from the journal notes."""
+    import json as _json
+    try:
+        n = _json.loads(t["notes"] or "{}")
+    except Exception:  # noqa: BLE001
+        return "greeks: n/a"
+
+    def fmt(g, vix):
+        if not g:
+            return "n/a"
+        parts = [f"Δ{g['delta']:+.2f}" if g.get("delta") is not None else "",
+                 f"Γ{g['gamma']:.3f}" if g.get("gamma") is not None else "",
+                 f"Θ{g['theta']:+.2f}" if g.get("theta") is not None else "",
+                 f"ν{g['vega']:.2f}" if g.get("vega") is not None else "",
+                 f"IV {g['iv']:.0%}" if g.get("iv") is not None else ""]
+        if vix is not None:
+            parts.append(f"VIX {vix:.1f}")
+        return " ".join(p for p in parts if p)
+    return f"greeks at buy {fmt(n.get('greeks_entry'), n.get('vix_entry'))} → at sell {fmt(n.get('greeks_exit'), n.get('vix_exit'))}"
+
+
 def daily_review(bot, date_iso: str = None) -> str:
     j = bot.journal
     reg = bot.registry
@@ -42,6 +64,8 @@ def daily_review(bot, date_iso: str = None) -> str:
     for t in rows:
         lines.append(f"- #{t['id']} {t['setup']} {t['direction']} {t['symbol']} entry {t['entry']} exit {t['exit_price']} "
                      f"({t['exit_reason']}) rr {t['rr_realized']:+.2f} level {t['level_reached']}/{t['level_targeted']}")
+        if (t["asset"] or "stock") == "option":
+            lines.append("  " + greeks_line(t))
     if not rows:
         lines.append("- none")
     lines += ["", "## Rejections", ""]

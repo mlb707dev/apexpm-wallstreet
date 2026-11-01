@@ -28,7 +28,7 @@ from .levels import LevelMap, levels_from_daily
 from .log import get_logger, safe
 from . import calendar as cal
 from .conviction import score as conviction_score
-from .profiles import EffectiveConfig, entries_paused, get_profile
+from .profiles import positions_exception, EffectiveConfig, entries_paused, get_profile
 from .registry import Registry
 from .ribbon import ribbon_from_closes
 from .sizing import size_trade
@@ -306,7 +306,8 @@ class Bot:
         assert self.state is not None
         taken: List[Signal] = []
         ctx = self._day_ctx or cal.day_context(now_et.date(), self.cfg.symbols, self.journal)
-        ecfg = EffectiveConfig(self.cfg, get_profile(self.journal, self.state.equity), ctx.size_mult, self.state.equity)
+        ecfg = EffectiveConfig(self.cfg, get_profile(self.journal, self.state.equity), ctx.size_mult, self.state.equity,
+                               positions_exception_on=positions_exception(self.journal))
         snap = self.snapshot(symbol, today, now_utc)
         if snap is None:
             return taken
@@ -438,6 +439,7 @@ class Bot:
         try:
             if is_opt:
                 oid = self.obroker.buy_to_open(sig.context["contract"], int(sz.qty))   # long calls/puts only, for now
+                self._snap_greeks(tid, sig.context["contract"], "entry")
             elif sig.context.get("fill_at_market"):
                 oid = self.broker.submit_market(sig.symbol, sz.qty, side)
             else:
@@ -639,6 +641,17 @@ class Bot:
             time.sleep(0.5)
         return fallback
 
+    def _snap_greeks(self, tid: int, occ: str, when: str) -> None:
+        """Record delta/gamma/theta/vega/IV and VIX on the journal row at purchase and at sale,
+        so the reports can say what the greeks looked like when we bought and when we sold."""
+        try:
+            g = self.obroker.greeks(occ) if self.obroker.connected else None
+            vix = json.loads(self.journal.get_state("vix") or "{}")
+            patch = {f"greeks_{when}": g, f"vix_{when}": vix.get("last")}
+            self.journal.patch_notes(tid, patch)
+        except Exception as exc:  # noqa: BLE001
+            self.log.warning("greeks snapshot (%s) failed for trade #%d: %s", when, tid, exc)
+
     def _check_option_exit(self, t, now_utc: datetime, now_et: datetime, today: str) -> None:
         """Option position: premium stop/target with the runner engine on premium,
         plus the underlying's stop/target, max hold, flat-by, and expiry-day cutoff."""
@@ -683,6 +696,7 @@ class Bot:
                     qty = int(pos.qty)
             except Exception:  # noqa: BLE001
                 pass
+            self._snap_greeks(t["id"], t["contract"], "exit")
             try:
                 exit_oid = self.obroker.sell_to_close(t["contract"], qty)
             except Exception as exc:  # noqa: BLE001

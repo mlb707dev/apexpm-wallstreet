@@ -135,7 +135,8 @@ class Api:
                 age = None
         acct = self._account()
         prof = profiles.get_profile(self.j, acct.get("equity") if acct.get("connected") else None)
-        eff = profiles.EffectiveConfig(self.cfg, prof, 1.0, acct.get("equity") if acct.get("connected") else None)
+        eff = profiles.EffectiveConfig(self.cfg, prof, 1.0, acct.get("equity") if acct.get("connected") else None,
+                                       positions_exception_on=profiles.positions_exception(self.j))
         return {
             "heartbeat": hb, "heartbeat_age_sec": age, "alive": age is not None and age < 180,
             "market": self.j.get_state("market", "unknown"),
@@ -153,6 +154,8 @@ class Api:
                           "stop_cooldown_min": self.cfg.stop_cooldown_min},
             "halted": self.j.get_state(f"halted:{et_date()}") == "1",
             "entries_paused": profiles.entries_paused(self.j),
+            "positions_exception": profiles.positions_exception(self.j),
+            "max_positions_hard": profiles.MAX_POSITIONS_HARD,
             "key_fingerprint": (self.cfg.alpaca_api_key[:4] + "…") if self.cfg.alpaca_api_key else None,
             "stream": {"ticks": int(self.j.get_state("stream_ticks") or 0), "last_tick": self.j.get_state("stream_last_tick"),
                        "feed": self.cfg.data_feed, "enabled": self.cfg.stream_enabled},
@@ -222,6 +225,10 @@ class Api:
             out.append(n)
         return out
 
+    def set_positions_exception(self, on: bool, note: str) -> Dict[str, Any]:
+        profiles.set_positions_exception(self.j, on, f"dashboard: {note}" if note else "dashboard")
+        return {"ok": True, "positions_exception": on}
+
     def set_paused(self, paused: bool, note: str) -> Dict[str, Any]:
         profiles.set_entries_paused(self.j, paused, f"dashboard: {note}" if note else "dashboard")
         return {"ok": True, "entries_paused": paused}
@@ -245,7 +252,15 @@ class Api:
         return out
 
     def trades(self, limit: int = 200) -> list:
-        return _rows(self.j.q("SELECT * FROM trades ORDER BY id DESC LIMIT ?", (limit,)))
+        rows = _rows(self.j.q("SELECT * FROM trades ORDER BY id DESC LIMIT ?", (limit,)))
+        for r in rows:   # surface greeks/VIX at purchase and sale next to the row
+            try:
+                n = json.loads(r.get("notes") or "{}")
+            except Exception:  # noqa: BLE001
+                n = {}
+            for k in ("greeks_entry", "greeks_exit", "vix_entry", "vix_exit"):
+                r[k] = n.get(k)
+        return rows
 
     def strategies(self) -> list:
         out = []
@@ -290,8 +305,40 @@ class Api:
                 return json.loads(t["notes"] or "{}").get("conviction", "?")
             except Exception:  # noqa: BLE001
                 return "?"
+        def note(t, key, default="?"):
+            try:
+                return json.loads(t["notes"] or "{}").get(key, default)
+            except Exception:  # noqa: BLE001
+                return default
+
+        def delta_bucket(t):
+            g = note(t, "greeks_entry", None)
+            if not g or g.get("delta") is None:
+                return "n/a" if (t["asset"] or "stock") == "option" else "stock"
+            d = abs(g["delta"])
+            return "|Δ|<0.35" if d < 0.35 else "|Δ| 0.35–0.55" if d < 0.55 else "|Δ|≥0.55"
+
+        def iv_bucket(t):
+            g = note(t, "greeks_entry", None)
+            if not g or g.get("iv") is None:
+                return "n/a" if (t["asset"] or "stock") == "option" else "stock"
+            return "IV<15%" if g["iv"] < 0.15 else "IV 15–25%" if g["iv"] < 0.25 else "IV≥25%"
+
+        def vix_bucket(t):
+            v = note(t, "vix_entry", None)
+            if v is None:
+                return "?"
+            return "VIX<15" if v < 15 else "VIX 15–20" if v < 20 else "VIX 20–30" if v < 30 else "VIX≥30"
+
+        def asset_class(t):
+            a = t["asset"] or "stock"
+            return "crypto" if "/" in (t["symbol"] or "") else a
+
         return {"by_strategy": agg(lambda t: t["setup"]), "by_direction": agg(lambda t: t["direction"]),
                 "by_conviction": agg(conv),
+                "by_asset_class": agg(asset_class), "by_symbol": agg(lambda t: t["symbol"]),
+                "by_strategy_symbol": agg(lambda t: f"{t['setup']} · {t['symbol']}"),
+                "by_entry_delta": agg(delta_bucket), "by_entry_iv": agg(iv_bucket), "by_entry_vix": agg(vix_bucket),
                 "by_hour": agg(hour), "by_weekday": agg(dow), "by_exit": agg(lambda t: t["exit_reason"]),
                 "by_regime": agg(lambda t: t["regime"]), "n": len(closed)}
 
@@ -453,6 +500,8 @@ def make_handler(api: Api, token: str = ""):
                 return self._json(api.set_profile(str(body.get("profile", "")), str(body.get("note", ""))))
             if path == "/api/decisions/resolve":
                 return self._json(api.resolve_decision(int(body.get("id", 0)), str(body.get("status", "")), str(body.get("note", ""))))
+            if path == "/api/settings/positions_exception":
+                return self._json(api.set_positions_exception(bool(body.get("on")), str(body.get("note", ""))))
             if path == "/api/settings/pause":
                 return self._json(api.set_paused(bool(body.get("paused")), str(body.get("note", ""))))
             return self._json({"ok": False, "error": "not_found"}, 404)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import json
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -174,6 +175,19 @@ class Journal:
         with self.tx() as c:
             c.execute("UPDATE trades SET status='open', entry=?, qty=?, fill_qty=?, broker_order_id=COALESCE(?, broker_order_id) "
                       "WHERE id=? AND status='pending'", (fill_price, fill_qty, fill_qty, order_id, trade_id))
+
+    def patch_notes(self, trade_id: int, patch: dict) -> None:
+        """Merge keys into the trade's notes JSON (greeks at entry/exit, VIX, etc.)."""
+        t = self.get_trade(trade_id)
+        if t is None:
+            return
+        try:
+            notes = json.loads(t["notes"] or "{}")
+        except Exception:  # noqa: BLE001
+            notes = {"raw": t["notes"]}
+        notes.update(patch)
+        with self.tx() as c:
+            c.execute("UPDATE trades SET notes=? WHERE id=?", (json.dumps(notes), trade_id))
 
     def update_exit_plan(self, trade_id: int, stop: float, target: float, runner: bool, be_done: bool) -> None:
         with self.tx() as c:

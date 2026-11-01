@@ -30,12 +30,33 @@ BANDS = [(1000.0, "hyper"), (5000.0, "growth"), (10000.0, "growth"), (50000.0, "
 # Per-band overrides applied on top of the profile: daily loss cap (fraction of session-start
 # equity; 0 = off), max open positions, max trades per day.
 BAND_RULES = [
-    (1000.0,        {"daily_loss_pct": 0.0,  "max_positions": 1, "max_trades_per_day": 3}),   # hyper: in-trade stops only
-    (5000.0,        {"daily_loss_pct": 0.15, "max_positions": 1, "max_trades_per_day": 4}),
-    (10000.0,       {"daily_loss_pct": 0.10, "max_positions": 2, "max_trades_per_day": 5}),
-    (50000.0,       {"daily_loss_pct": 0.08, "max_positions": 2, "max_trades_per_day": 6}),
+    (1000.0,        {"daily_loss_pct": 0.0,  "max_positions": 1, "max_trades_per_day": 3}),   # hyper: one at a time, in-trade stops only
+    (5000.0,        {"daily_loss_pct": 0.15, "max_positions": 2, "max_trades_per_day": 4}),
+    (10000.0,       {"daily_loss_pct": 0.10, "max_positions": 3, "max_trades_per_day": 5}),
+    (50000.0,       {"daily_loss_pct": 0.08, "max_positions": 3, "max_trades_per_day": 6}),
     (float("inf"),  {"daily_loss_pct": 0.06, "max_positions": 3, "max_trades_per_day": 8}),
 ]
+# Owner's rule (2026-11-01): "usually 3 with exception, up to 5". A position is one
+# symbol/contract; adding to it still counts as one. The exception is a one-tap
+# switch on the dashboard that lifts the cap to MAX_POSITIONS_HARD for the day.
+MAX_POSITIONS_HARD = 5
+
+
+def positions_exception(journal) -> bool:
+    """True when the owner lifted the cap to the hard ceiling for today (ET date stored with it)."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    v = journal.get_state("positions_exception", "") or ""
+    return v == datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+
+
+def set_positions_exception(journal, on: bool, note: str = "") -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    journal.set_state("positions_exception", datetime.now(ZoneInfo("America/New_York")).date().isoformat() if on else "")
+    with journal.tx() as c:
+        c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (datetime('now'), 'portfolio', ?, ?)",
+                  ("positions_exception_on" if on else "positions_exception_off", note))
 
 
 def band_rules(equity: float) -> dict:
@@ -84,7 +105,8 @@ def set_profile(journal, name: str, note: str = "") -> str:
 class EffectiveConfig:
     """cfg view with the active profile's multipliers applied within ceilings."""
 
-    def __init__(self, cfg, profile: str, event_size_mult: float = 1.0, equity: float = None):
+    def __init__(self, cfg, profile: str, event_size_mult: float = 1.0, equity: float = None,
+                 positions_exception_on: bool = False):
         self._cfg = cfg
         p = PROFILES.get(profile, PROFILES["standard"])
         rules = band_rules(equity) if equity is not None else None
@@ -103,6 +125,8 @@ class EffectiveConfig:
             self.max_positions = rules["max_positions"]
             self.max_trades_per_day = rules["max_trades_per_day"]
             self.max_daily_loss_pct = rules["daily_loss_pct"]
+        if positions_exception_on:
+            self.max_positions = max(self.max_positions, MAX_POSITIONS_HARD)
 
     def confluence_mult(self, score: int) -> float:
         """Size multiplier for a signal's confluence score (1 = base)."""
