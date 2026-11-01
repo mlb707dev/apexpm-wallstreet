@@ -99,7 +99,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 10</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 11</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -142,11 +142,12 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
     <div class="card"><h3>Risk profile <span id="profchip2" class="chip research">…</span></h3>
       <div class="seg" id="seg"></div><p id="profblurb"></p>
       <div id="eff" style="margin-top:8px"></div></div>
-    <div class="card"><h3>R curve <span class="ago">all closed trades</span></h3><canvas id="curve"></canvas></div>
+    <div class="card"><h3>Equity <span class="ago">closed trades, P&L in dollars</span></h3><canvas id="curve"></canvas></div>
   </div><div>
     <div class="card"><h3>Bot <span id="alive" class="chip off">…</span></h3><div id="botcard"></div></div>
     <div class="card"><h3>Paper account</h3><div id="acct"></div></div>
-    <div class="card" id="plan"><h3>Today's levels</h3><div class="empty">No pre-market plan yet.</div></div>
+    <div class="card" id="rangecard"><h3>Today's range <span class="ago" id="rangenote"></span></h3><div id="range" class="empty">Waiting for the open.</div></div>
+    <div class="card" id="plan"><h3>ATR levels</h3><div class="empty">No pre-market plan yet.</div></div>
   </div></div>
 </section>
 
@@ -286,17 +287,30 @@ async function loadHome(){
     <div class="row"><span>Max drawdown</span><b>${fmt(o.all_time.max_dd_r,1)}R</b></div>
     <div class="row"><span>Started with</span><b>${o.starting_equity?money(o.starting_equity):'—'}</b></div>`
     : `<div class="empty">Broker not connected on the API server${a.error?': '+a.error:''}.</div>`;
-  const labels = o.curve.map((_,i)=>i+1), data = o.curve.map(p=>p.r);
+  const labels = o.curve.map((_,i)=>i+1), data = o.curve.map(p=>p.cum_pnl!=null?p.cum_pnl:p.r);
   if(chart) chart.destroy();
   chart = new Chart($('#curve'), {type:'line', data:{labels, datasets:[{data, borderColor:'#38bdf8', backgroundColor:'rgba(56,189,248,.12)', fill:true, tension:.25, pointRadius:0, borderWidth:2}]},
     options:{plugins:{legend:{display:false}}, scales:{x:{display:false}, y:{grid:{color:'#222b48'}, ticks:{color:'#6b7299', font:{family:'JetBrains Mono', size:10}}}}, animation:false}});
   const plan = await api('/api/plan');
   if(plan){
-    const lv = plan.levels, ks = Object.keys(lv).filter(k=>k.startsWith('+')).map(k=>k.slice(1)).sort((a,b)=>b-a);
-    let h = `<div class="lv anchor"><span>${plan.symbol} anchor · ATR ${fmt(lv.atr)}</span><b>${fmt(lv.anchor)}</b></div><div class="levels">`;
-    ks.forEach(k=>{ h += `<div class="lv up"><span>+${k}</span><b>${fmt(lv['+'+k])}</b></div><div class="lv dn"><span>−${k}</span><b>${fmt(lv['-'+k])}</b></div>`; });
-    $('#plan').innerHTML = `<h3>Today's levels <span class="ago">${plan.date}</span></h3>` + h + '</div>';
+    const lv = plan.levels;
     $('#t_atr').textContent = fmt(lv.atr) + ' (' + (lv.atr/lv.anchor*100).toFixed(2) + '%)';
+    const block = (title, m) => {
+      if(!m) return '';
+      const ks = Object.keys(m).filter(k=>k.startsWith('+')).map(k=>k.slice(1)).sort((a,b)=>b-a);
+      let h = `<p style="margin:10px 0 6px;color:#fff;font-weight:600">${title} <span class="ago">anchor ${fmt(m.anchor)} · ATR ${fmt(m.atr)} (${(m.atr/m.anchor*100).toFixed(2)}%)</span></p><div class="levels">`;
+      ks.forEach(k=>{ h += `<div class="lv up"><span>+${k}</span><b>${fmt(m['+'+k])}</b></div><div class="lv dn"><span>−${k}</span><b>${fmt(m['-'+k])}</b></div>`; });
+      return h + '</div>';
+    };
+    $('#plan').innerHTML = `<h3>ATR levels <span class="ago">${plan.symbol} · ${plan.date}</span></h3>` + block('Day', lv) + block('Week', plan.week) + block('Month', plan.month);
+    const r = plan.range;
+    if (r && r.high) {
+      const used = (r.high - r.low) / lv.atr;
+      const posHi = ((r.high - lv.anchor)/lv.atr).toFixed(2), posLo = ((r.low - lv.anchor)/lv.atr).toFixed(2);
+      $('#rangenote').textContent = (used*100).toFixed(0) + '% of day ATR used';
+      $('#range').className = '';
+      $('#range').innerHTML = `<div class="row"><span>Open</span><b>${fmt(r.open)}</b></div><div class="row"><span>High</span><b class="pos">${fmt(r.high)} (${posHi>0?'+':''}${posHi} ATR)</b></div><div class="row"><span>Low</span><b class="neg">${fmt(r.low)} (${posLo} ATR)</b></div><div class="row"><span>Last</span><b>${fmt(r.last)}</b></div><div class="row"><span>Range</span><b>${fmt(r.high - r.low)} of ${fmt(lv.atr)} ATR</b></div>`;
+    }
   }
   const st = await api('/api/settings');
   const keys = ['auto'].concat(Object.keys(st.profiles));

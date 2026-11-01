@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import threading
 import time
+
+import pandas as pd
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -148,7 +150,7 @@ class Bot:
         except Exception:  # noqa: BLE001
             pass
         self.journal.save_plan(date=today, symbol=symbol, anchor=lv.anchor, atr=lv.atr,
-                               levels_json=json.dumps(lv.as_dict()))
+                               levels_json=json.dumps(extra))
         self.log.info("%s levels anchor=%.2f atr=%.2f bands=%s", symbol, lv.anchor, lv.atr, sorted(lv.up))
         return lv
 
@@ -165,10 +167,18 @@ class Bot:
         price = (self.fast.prices.get(symbol, 5) if self.fast else None) \
             or self.feed.last_price(symbol, self.cfg.max_price_age_sec) or float(ltf["close"].iloc[-1])
         try:
-            if "volume" in ltf and hasattr(ltf.index, "tz_convert"):
+            if hasattr(ltf.index, "tz_convert"):
                 et_idx = ltf.index.tz_convert(ET)
                 today_mask = et_idx.date == now_utc.astimezone(ET).date()
-                safe(self.journal.set_state, f"vol_today:{symbol}", str(float(ltf["volume"][today_mask].sum())))
+                tb = ltf[today_mask]
+                if len(tb):
+                    if "volume" in tb:
+                        safe(self.journal.set_state, f"vol_today:{symbol}", str(float(tb["volume"].sum())))
+                    safe(self.journal.set_state, f"range:{symbol}", json.dumps({
+                        "open": float(tb["open"].iloc[0]) if "open" in tb else float(tb["close"].iloc[0]),
+                        "high": float(tb["high"].max()) if "high" in tb else float(tb["close"].max()),
+                        "low": float(tb["low"].min()) if "low" in tb else float(tb["close"].min()),
+                        "last": price}))
         except Exception:  # noqa: BLE001
             pass
         rl = ribbon_from_closes(ltf["close"].values, self.cfg.ema_fast, self.cfg.ema_mid, self.cfg.ema_slow)

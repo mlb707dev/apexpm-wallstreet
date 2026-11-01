@@ -66,10 +66,13 @@ class Api:
             return {"connected": False, "error": str(exc)[:120]}
 
     def _curve(self, closed: List[dict]) -> List[dict]:
-        cum, out = 0.0, []
+        start = float(self.j.get_state("starting_equity") or 0)
+        cum, cum_pnl, out = 0.0, 0.0, []
         for t in closed:
             cum += t["rr_realized"] or 0
-            out.append({"t": t["closed_at"], "r": round(cum, 3), "pnl": t["pnl"], "setup": t["setup"]})
+            cum_pnl += t["pnl"] or 0
+            out.append({"t": t["closed_at"], "r": round(cum, 3), "pnl": t["pnl"], "setup": t["setup"],
+                        "equity": round(start + cum_pnl, 2) if start else None, "cum_pnl": round(cum_pnl, 2)})
         return out
 
     # ---- endpoints ----------------------------------------------------------
@@ -287,7 +290,17 @@ class Api:
         if not r:
             return None
         d = dict(r)
-        d["levels"] = json.loads(d.pop("levels_json"))
+        raw = json.loads(d.pop("levels_json"))
+        if "day" in raw:
+            d["levels"] = raw["day"]
+            d["week"] = raw.get("week")
+            d["month"] = raw.get("month")
+        else:
+            d["levels"] = raw
+        try:
+            d["range"] = json.loads(self.j.get_state(f"range:{d['symbol']}") or "null")
+        except Exception:  # noqa: BLE001
+            d["range"] = None
         return d
 
     def settings(self) -> Dict[str, Any]:
