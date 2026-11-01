@@ -90,8 +90,16 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
 </style>
 </head>
 <body>
+<div id="modal" style="position:fixed;inset:0;background:rgba(5,8,20,.8);display:none;align-items:center;justify-content:center;z-index:30;padding:20px">
+  <div style="background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:18px;width:100%;max-width:380px">
+    <h3 id="m_title" style="font-size:14px;color:#fff;margin-bottom:8px"></h3>
+    <p id="m_text" style="font-size:12px;color:var(--dim);margin-bottom:8px"></p>
+    <input class="inp" id="m_note" placeholder="Note (recorded)" autocomplete="off">
+    <div class="actions"><button class="btn ok" id="m_ok">Confirm</button><button class="btn" id="m_cancel">Cancel</button></div>
+  </div></div>
+<div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 6</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 7</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -175,6 +183,15 @@ const cls = n => n==null ? '' : n>0 ? 'pos' : n<0 ? 'neg' : '';
 const ago = s => s==null ? '—' : s<60 ? s+'s ago' : s<3600 ? Math.round(s/60)+'m ago' : Math.round(s/3600)+'h ago';
 let chart;
 
+function ask(title, text, needNote=true){
+  return new Promise(res=>{
+    const m=$('#modal'); $('#m_title').textContent=title; $('#m_text').textContent=text||''; $('#m_note').value=''; $('#m_note').style.display=needNote?'block':'none';
+    m.style.display='flex';
+    const done=v=>{ m.style.display='none'; $('#m_ok').onclick=null; $('#m_cancel').onclick=null; res(v); };
+    $('#m_ok').onclick=()=>done($('#m_note').value.trim()); $('#m_cancel').onclick=()=>done(null);
+  });
+}
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none', 2500); }
 async function api(p, opts={}){
   const base = LS.api; const headers = Object.assign({}, opts.headers||{});
   if (LS.tok) headers['Authorization'] = 'Bearer ' + LS.tok;
@@ -286,14 +303,14 @@ async function loadHome(){
   $('#profblurb').textContent = st.profiles[st.profile].blurb;
 }
 async function setPause(paused){
-  const note = prompt((paused?'Pause':'Resume')+' new entries. Why? (recorded)'); if(note===null) return;
+  const note = await ask((paused?'Pause':'Resume')+' new entries', paused?'No new positions until resumed. Exits keep running.':'New entries allowed again.'); if(note===null) return;
   const r = await api('/api/settings/pause',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paused,note})});
-  if(!r.ok) alert(r.error); loadHome().catch(showErr);
+  if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadHome().catch(showErr);
 }
 async function setProfile(name){
-  const note = prompt('Why switch to '+name+'? (recorded as a governance event)') ; if(note===null) return;
+  const note = await ask('Switch risk profile to '+name, 'Applies on the next scan. Recorded as a governance event.'); if(note===null) return;
   const r = await api('/api/settings/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile:name,note})});
-  if(!r.ok) alert(r.error); loadHome().catch(showErr);
+  if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadHome().catch(showErr);
 }
 
 async function loadPositions(){
@@ -345,10 +362,10 @@ async function loadSettings(){
   $('#s_api').textContent = LS.api || '(this server)';
 }
 async function setStatus(name, status){
-  const note = status==='paper' ? prompt('Why promote '+name+'? (recorded)') : '';
-  if(status==='paper' && note===null) return;
+  const note = await ask((status==='paper'?'Promote ':status==='suspended'?'Quarantine ':'Move to lab: ')+name, status==='paper'?'Paper book: real paper orders from the next scan.':status==='suspended'?'Shadow book: journaled, no orders.':'Shadow book for tuning.');
+  if(note===null) return;
   const r = await api('/api/strategy/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,status,note:note||''})});
-  if(!r.ok) alert(r.error); loadSettings().catch(showErr);
+  if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadSettings().catch(showErr); loadHome().catch(()=>{});
 }
 
 async function loadDecisions(){
@@ -361,9 +378,9 @@ async function loadDecisions(){
   $('#decresolved').innerHTML = d.resolved.length ? '<table><tr><th>When</th><th>Title</th><th>Status</th><th>Note</th></tr>' + d.resolved.map(x=>`<tr><td>${(x.resolved_at||'').slice(0,10)}</td><td style="white-space:normal">${x.title}</td><td>${x.status}</td><td style="white-space:normal">${x.note||''}</td></tr>`).join('') + '</table>' : '<div class="empty">None yet.</div>';
 }
 async function resolveDecision(id, status){
-  const note = prompt((status==='approved'?'Approve':'Dismiss')+' this. Note (recorded):'); if(note===null) return;
+  const note = await ask((status==='approved'?'Approve':'Dismiss')+' decision #'+id, ''); if(note===null) return;
   const r = await api('/api/decisions/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status,note})});
-  if(!r.ok) alert(r.error); loadDecisions().catch(showErr);
+  if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadDecisions().catch(showErr);
 }
 const loaders = {overview: loadHome, positions: loadPositions, activity: loadActivity, analytics: loadAnalytics, reports: loadReports, decisions: loadDecisions, settings: loadSettings};
 document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
