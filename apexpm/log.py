@@ -1,6 +1,6 @@
 """Logging that never breaks the bot.
 
-Rule from the Kalshi bot: a logging failure must not take trading down.
+Rule: a logging failure must not take trading down.
 """
 from __future__ import annotations
 

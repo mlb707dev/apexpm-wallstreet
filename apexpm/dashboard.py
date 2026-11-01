@@ -5,7 +5,7 @@ Auth: when DASHBOARD_TOKEN is set, every /api call needs it as
 once (which sets the cookie). Without a token the server only binds to
 localhost (enforced by config.validate and serve()).
 
-CORS is open for the API so a static front-end on another origin (Vercel)
+CORS is open for the API so a static front-end on another origin
 can call it with the bearer token. Secrets are never read or returned here.
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ from .news import NewsFeed
 from .config import Config
 from .db import Journal, et_date
 from .registry import Registry
-from .strategies import BandFade, EmaBounce, EmaCross, EmaHold, GapContinuation, GoldenGate, Vomy, golden_gate_v2
+from .strategies import ExampleBreakout
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dashboard")
 STATIC_FILES = {"/manifest.json": "manifest.json", "/sw.js": "sw.js"}
@@ -41,17 +41,7 @@ class Api:
         self.cfg = cfg
         self.j = journal
         self.reg = Registry(journal, cfg)
-        self.reg.register(GoldenGate(), "research")
-        self.reg.register(golden_gate_v2(), "paper")
-        self.reg.register(Vomy(), "paper" if cfg.vomy_enabled else "research")
-        self.reg.register(GapContinuation(), "paper" if cfg.gap_enabled else "research")
-        self.reg.register(EmaCross(), "research")
-        self.reg.register(EmaBounce(), "research")
-        self.reg.register(EmaHold(), "research")
-        if cfg.options_enabled:
-            from .options_exec import OptionsWrapper
-            self.reg.register(OptionsWrapper(golden_gate_v2(), lambda u, a, b: [], min_dte=cfg.opt_min_dte, max_dte=cfg.opt_max_dte), "research")
-            self.reg.register(OptionsWrapper(EmaHold(), lambda u, a, b: [], min_dte=cfg.opt_min_dte, max_dte=cfg.opt_max_dte), "research")
+        self.reg.register(ExampleBreakout(), "paper")
         cal.ensure_table(journal)
         self._news = NewsFeed(cfg, journal) if cfg.news_enabled else None
         self._broker = None

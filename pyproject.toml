@@ -1,7 +1,7 @@
 [project]
 name = "apexpm-wallstreet"
 version = "0.1.0"
-description = "Paper-first trading agent for Alpaca built on ATR levels and the Golden Gate setup"
+description = "Paper-first, governance-driven trading agent framework for Alpaca"
 requires-python = ">=3.9"
 
 [tool.pytest.ini_options]

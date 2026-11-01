@@ -16,7 +16,7 @@ from .log import get_logger
 
 log = get_logger()
 REQUIRED = ("symbol", "event", "direction", "level", "ts")
-EVENTS = ("golden_gate", "trigger_break", "ribbon_fold", "vomy")
+EVENTS = ("level_break", "ribbon_flip", "reversal")
 
 
 def validate(payload: Dict[str, Any], secret: str) -> Optional[str]:
