@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from . import risk as riskmod
-from .broker import Broker
+from .broker import Broker, OptionsBroker
 from .config import Config
 from .data import DataFeed
 from .db import Journal, et_date
@@ -30,6 +30,7 @@ from .registry import Registry
 from .ribbon import ribbon_from_closes
 from .sizing import size_trade
 from .stream import FastLayer
+from .options_exec import OptionsWrapper, size_contracts
 from .strategies import ExampleBreakout
 from .strategies.base import MarketSnapshot, Signal
 from .webhook import WebhookServer
@@ -47,6 +48,10 @@ class Bot:
         self.feed = feed or DataFeed(cfg)
         self.registry = Registry(self.journal, cfg)
         self.registry.register(ExampleBreakout(), "paper")
+        self.obroker = OptionsBroker(cfg, self.broker)
+        if cfg.options_enabled:
+            chain = (lambda u, a, b: self.obroker.chain(u, a, b)) if self.obroker.connected else (lambda u, a, b: [])
+            self.registry.register(OptionsWrapper(ExampleBreakout(), chain, min_dte=cfg.opt_min_dte, max_dte=cfg.opt_max_dte), "research")
         self.webhook: Optional[WebhookServer] = None
         self.state: Optional[riskmod.RiskState] = None
         self._levels: Dict[str, LevelMap] = {}
@@ -219,10 +224,12 @@ class Bot:
             return []
         if self.state.halted:
             return []
-        cap = self.cfg.max_daily_loss
-        if self.cfg.max_daily_loss_pct > 0:
-            cap = min(cap, self.state.starting_equity * self.cfg.max_daily_loss_pct)
-        dl = riskmod.check_daily_loss(self.state, cap)
+        band = EffectiveConfig(self.cfg, get_profile(self.journal, self.state.equity), 1.0, self.state.equity)
+        if band.max_daily_loss_pct > 0:
+            cap = min(self.cfg.max_daily_loss, self.state.starting_equity * band.max_daily_loss_pct)
+            dl = riskmod.check_daily_loss(self.state, cap)
+        else:
+            dl = None   # hyper band: in-trade stops are the protection; no daily cap
         if dl:
             self.log.warning("forced DRY_RUN for today: %s", dl)
 
@@ -240,7 +247,7 @@ class Bot:
         assert self.state is not None
         taken: List[Signal] = []
         ctx = self._day_ctx or cal.day_context(now_et.date(), self.cfg.symbols, self.journal)
-        ecfg = EffectiveConfig(self.cfg, get_profile(self.journal, self.state.equity), ctx.size_mult)
+        ecfg = EffectiveConfig(self.cfg, get_profile(self.journal, self.state.equity), ctx.size_mult, self.state.equity)
         snap = self.snapshot(symbol, today, now_utc)
         if snap is None:
             return taken
@@ -292,6 +299,17 @@ class Bot:
             if gates:
                 reject(symbol, strat.name, ",".join(gates), sig.direction)
                 continue
+            if sig.context.get("asset") == "option":
+                n, why_sz = size_contracts(self.state.equity, sig.entry, self.cfg.opt_premium_stop,
+                                           ecfg.max_pos_pct, self.cfg.opt_max_premium_pct)
+                if n < 1:
+                    reject(symbol, strat.name, f"size:{why_sz}", sig.direction)
+                    continue
+                from .sizing import SizeResult
+                sz = SizeResult(float(n), sig.entry * 100 * self.cfg.opt_premium_stop * n, 0.0, ecfg.max_pos_pct, 1.0, sig.entry * 100 * n)
+                self._enter(sig, sz, snap, now_utc, webhook_agreed=None)
+                taken.append(sig)
+                continue
             pnls = [t["pnl"] for t in self.journal.closed_trades(strat.name) if t["pnl"] is not None]
             sz = size_trade(equity=self.state.equity, price=snap.price, entry=sig.entry, stop=sig.stop,
                             target=sig.target, atr=snap.levels.atr, closed_pnls=pnls, cfg=ecfg)
@@ -329,8 +347,10 @@ class Bot:
         dry = mode == "DRY_RUN"
         # 1. intent row first
         qty = sz.qty
+        is_opt = sig.context.get("asset") == "option"
         tid = self.journal.open_trade(
             opened_at=now_utc.isoformat(timespec="seconds"),
+            asset="option" if is_opt else "stock", contract=sig.context.get("contract") if is_opt else None,
             symbol=sig.symbol, setup=sig.setup, direction=sig.direction, regime=snap.regime,
             qty=sz.qty, entry=sig.entry, stop=sig.stop, target=sig.target,
             max_hold_min=sig.max_hold_min, level_targeted=sig.level_targeted,
@@ -345,7 +365,9 @@ class Bot:
             return
         # 2. then the order
         try:
-            if sig.context.get("fill_at_market"):
+            if is_opt:
+                oid = self.obroker.buy_to_open(sig.context["contract"], int(sz.qty))   # long calls/puts only, for now
+            elif sig.context.get("fill_at_market"):
                 oid = self.broker.submit_market(sig.symbol, sz.qty, side)
             else:
                 # Marketable limit: fill now at the current price, capped a small
@@ -448,6 +470,8 @@ class Bot:
 
     def _check_exit(self, t, now_utc: datetime, now_et: datetime, today: str, price: Optional[float] = None) -> None:
       with self._exit_lock:
+        if t["asset"] == "option":
+            return self._check_option_exit(t, now_utc, now_et, today)
         sign = 1 if t["direction"] == "long" else -1
         opened = datetime.fromisoformat(t["opened_at"])
         if opened.tzinfo is None:
@@ -517,6 +541,58 @@ class Bot:
             self.log.info("daily review done:\n%s", report)
         except Exception as exc:  # noqa: BLE001
             self.log.exception("daily review failed: %s", exc)
+
+    def _check_option_exit(self, t, now_utc: datetime, now_et: datetime, today: str) -> None:
+        """Option position: premium stop/target with the runner engine on premium,
+        plus the underlying's stop/target, max hold, flat-by, and expiry-day cutoff."""
+        opened = datetime.fromisoformat(t["opened_at"])
+        if opened.tzinfo is None:
+            opened = opened.replace(tzinfo=timezone.utc)
+        held_min = (now_utc - opened).total_seconds() / 60
+        ctx = json.loads(t["notes"] or "{}")
+        expiry = ctx.get("expiry")
+        reason = None
+        mark = self.obroker.mark(t["contract"]) if self.obroker.connected else None
+        if held_min >= t["max_hold_min"]:
+            reason = "max_hold"
+        elif riskmod.past_cutoff(now_et, self.cfg.flat_by):
+            reason = "flat_by"
+        elif expiry == today and (now_et.hour, now_et.minute) >= (15, 60 - self.cfg.opt_flat_before_close_min):
+            reason = "expiry_cutoff"
+        else:
+            under = (self.fast.prices.get(t["symbol"], 5) if self.fast else None)
+            sign = 1 if t["direction"] == "long" else -1
+            if under is not None and ctx.get("under_stop") and (under - ctx["under_stop"]) * sign <= 0:
+                reason = "under_stop"
+            elif mark is not None:
+                # premium plan: stop/target stored on the trade; runner trails on premium (levels = +50% steps)
+                steps = [round(t["entry"] * (1 + 0.5 * k), 2) for k in range(2, 9)]
+                plan = ExitPlan("long", t["entry"], t["initial_stop"] or t["stop"], t["stop"], t["target"], t["entry"] * 0.5,
+                                steps, runner=bool(t["runner"]), be_done=bool(t["be_done"]))
+                m = self._momentum.get(t["symbol"])
+                momentum = bool(m and m["long" if sign == 1 else "short"])
+                reason, _px, changed = exit_update(plan, mark, mark, momentum, self.cfg)
+                if changed or plan.stop != t["stop"] or plan.target != t["target"]:
+                    self.journal.update_exit_plan(t["id"], plan.stop, plan.target, plan.runner, plan.be_done)
+        if reason is None:
+            return
+        exit_oid = None
+        exit_price = mark
+        if t["mode"] != "DRY_RUN":
+            exit_oid = self.obroker.sell_to_close(t["contract"], int(t["qty"]))
+            try:
+                st = self.broker.order_state(exit_oid) if exit_oid else None
+                if st and st.filled_avg_price:
+                    exit_price = st.filled_avg_price
+            except Exception:  # noqa: BLE001
+                pass
+        if exit_price is None:
+            exit_price = t["stop"] if reason.endswith("stop") else t["entry"]
+        if self.journal.close_trade(t["id"], exit_price, reason, None, exit_oid, now=now_utc.isoformat(timespec="seconds")):
+            if self.state:
+                self.state.open_symbols.discard(t["symbol"])
+                self.state.realized_pnl_today = self.journal.realized_pnl_today(today)
+            self.log.info("option trade #%d closed %s @ %.2f", t["id"], reason, exit_price)
 
     # ---- run --------------------------------------------------------------
     def run_forever(self) -> None:

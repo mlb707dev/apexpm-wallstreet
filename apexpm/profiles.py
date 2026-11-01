@@ -25,8 +25,24 @@ PROFILES: Dict[str, Dict[str, float]] = {
 }
 DEFAULT = "auto"       # choose by equity band
 CEILINGS = {"risk_mult": 2.0, "trades_mult": 2.5, "kelly_mult": 1.5, "risk_abs": 0.6}
-# Equity bands for the automatic profile (upper bound exclusive)
-BANDS = [(2500.0, "hyper"), (10000.0, "growth"), (float("inf"), "standard")]
+# Equity bands for the automatic profile (upper bound exclusive). Safeguards return by band.
+BANDS = [(1000.0, "hyper"), (5000.0, "growth"), (10000.0, "growth"), (50000.0, "standard"), (float("inf"), "standard")]
+# Per-band overrides applied on top of the profile: daily loss cap (fraction of session-start
+# equity; 0 = off), max open positions, max trades per day.
+BAND_RULES = [
+    (1000.0,        {"daily_loss_pct": 0.0,  "max_positions": 1, "max_trades_per_day": 3}),   # hyper: in-trade stops only
+    (5000.0,        {"daily_loss_pct": 0.15, "max_positions": 1, "max_trades_per_day": 4}),
+    (10000.0,       {"daily_loss_pct": 0.10, "max_positions": 2, "max_trades_per_day": 5}),
+    (50000.0,       {"daily_loss_pct": 0.08, "max_positions": 2, "max_trades_per_day": 6}),
+    (float("inf"),  {"daily_loss_pct": 0.06, "max_positions": 3, "max_trades_per_day": 8}),
+]
+
+
+def band_rules(equity: float) -> dict:
+    for upper, rules in BAND_RULES:
+        if equity < upper:
+            return rules
+    return BAND_RULES[-1][1]
 
 
 def band_profile(equity: float) -> str:
@@ -68,9 +84,10 @@ def set_profile(journal, name: str, note: str = "") -> str:
 class EffectiveConfig:
     """cfg view with the active profile's multipliers applied within ceilings."""
 
-    def __init__(self, cfg, profile: str, event_size_mult: float = 1.0):
+    def __init__(self, cfg, profile: str, event_size_mult: float = 1.0, equity: float = None):
         self._cfg = cfg
         p = PROFILES.get(profile, PROFILES["standard"])
+        rules = band_rules(equity) if equity is not None else None
         if p.get("risk_abs"):
             self.max_pos_pct = min(p["risk_abs"] * event_size_mult, CEILINGS["risk_abs"])
         else:
@@ -80,6 +97,12 @@ class EffectiveConfig:
         self.profile = profile
         self.event_size_mult = event_size_mult
         self._p = p
+        self.max_positions = cfg.max_positions
+        self.max_daily_loss_pct = cfg.max_daily_loss_pct
+        if rules:
+            self.max_positions = rules["max_positions"]
+            self.max_trades_per_day = rules["max_trades_per_day"]
+            self.max_daily_loss_pct = rules["daily_loss_pct"]
 
     def confluence_mult(self, score: int) -> float:
         """Size multiplier for a signal's confluence score (1 = base)."""

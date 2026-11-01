@@ -128,6 +128,15 @@ class Config:
     entry_good_for_bars: int = field(default_factory=lambda: _i("ENTRY_GOOD_FOR_BARS", 3))
     max_price_age_sec: int = field(default_factory=lambda: _i("MAX_PRICE_AGE_SEC", 120))
 
+    # Options
+    options_enabled: bool = field(default_factory=lambda: _b("OPTIONS_ENABLED", True))
+    opt_premium_stop: float = field(default_factory=lambda: _f("OPT_PREMIUM_STOP", 0.5))
+    opt_premium_target: float = field(default_factory=lambda: _f("OPT_PREMIUM_TARGET", 1.0))
+    opt_max_premium_pct: float = field(default_factory=lambda: _f("OPT_MAX_PREMIUM_PCT", 0.5))   # of equity, per position
+    opt_min_dte: int = field(default_factory=lambda: _i("OPT_MIN_DTE", 0))
+    opt_max_dte: int = field(default_factory=lambda: _i("OPT_MAX_DTE", 2))
+    opt_flat_before_close_min: int = field(default_factory=lambda: _i("OPT_FLAT_BEFORE_CLOSE_MIN", 20))
+
     # Exit engine
     exit_be_at_r: float = field(default_factory=lambda: _f("EXIT_BE_AT_R", 1.0))
     exit_be_offset_atr: float = field(default_factory=lambda: _f("EXIT_BE_OFFSET_ATR", 0.02))

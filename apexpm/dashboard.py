@@ -88,9 +88,11 @@ class Api:
         day_pnl = self.j.realized_pnl_today(today)
         trades_today = self.j.trades_today(today)
         start = self.j.get_state("starting_equity")
-        cap = self.cfg.max_daily_loss
-        if self.cfg.max_daily_loss_pct > 0 and start:
-            cap = min(cap, float(start) * self.cfg.max_daily_loss_pct)
+        acct0 = self._account()
+        band = profiles.EffectiveConfig(self.cfg, profiles.get_profile(self.j, acct0.get("equity")), 1.0, acct0.get("equity") if acct0.get("connected") else None)
+        cap = 0.0
+        if band.max_daily_loss_pct > 0 and start:
+            cap = min(self.cfg.max_daily_loss, float(start) * band.max_daily_loss_pct)
         in_open = 0.0
         unreal = 0.0
         for t in open_:
@@ -128,7 +130,7 @@ class Api:
                 age = None
         acct = self._account()
         prof = profiles.get_profile(self.j, acct.get("equity") if acct.get("connected") else None)
-        eff = profiles.EffectiveConfig(self.cfg, prof)
+        eff = profiles.EffectiveConfig(self.cfg, prof, 1.0, acct.get("equity") if acct.get("connected") else None)
         return {
             "heartbeat": hb, "heartbeat_age_sec": age, "alive": age is not None and age < 180,
             "market": self.j.get_state("market", "unknown"),
@@ -140,8 +142,8 @@ class Api:
             "live_armed": [n for n in self.reg.names() if self.reg.mode_for(n) == "LIVE"],
             "profile": prof,
             "effective": {"max_pos_pct": eff.max_pos_pct, "max_trades_per_day": eff.max_trades_per_day,
-                          "kelly_fraction": eff.kelly_fraction, "max_positions": self.cfg.max_positions,
-                          "max_daily_loss": self.cfg.max_daily_loss, "max_daily_loss_pct": self.cfg.max_daily_loss_pct,
+                          "kelly_fraction": eff.kelly_fraction, "max_positions": eff.max_positions,
+                          "max_daily_loss": self.cfg.max_daily_loss, "max_daily_loss_pct": eff.max_daily_loss_pct,
                           "kill_dd_pct": self.cfg.kill_dd_pct,
                           "stop_cooldown_min": self.cfg.stop_cooldown_min},
             "halted": self.j.get_state(f"halted:{et_date()}") == "1",

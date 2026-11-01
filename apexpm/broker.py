@@ -138,3 +138,92 @@ class Broker:
         if self._refuse("cancel_all"):
             return
         self._client.cancel_orders()
+
+
+# ---------------------------------------------------------------------------
+# Options
+# ---------------------------------------------------------------------------
+class OptionsBroker:
+    """Option chain lookup and single-leg contract orders. Paper by default;
+    DRY_RUN never sends. Contracts are OCC symbols, e.g. SPY261103C00680000."""
+
+    def __init__(self, cfg, broker: "Broker"):
+        self.cfg = cfg
+        self.broker = broker
+        self._data = None
+        if cfg.alpaca_api_key and cfg.alpaca_secret_key:
+            from alpaca.data.historical.option import OptionHistoricalDataClient
+            self._data = OptionHistoricalDataClient(cfg.alpaca_api_key, cfg.alpaca_secret_key)
+
+    @property
+    def connected(self) -> bool:
+        return self._data is not None and self.broker.connected
+
+    def chain(self, underlying: str, expiry_from=None, expiry_to=None):
+        """Live chain snapshots → list of Contract (apexpm.options)."""
+        from datetime import date as _date
+        from alpaca.data.requests import OptionChainRequest
+        from .options import Contract
+        req = OptionChainRequest(underlying_symbol=underlying, feed="indicative",
+                                 expiration_date_gte=expiry_from, expiration_date_lte=expiry_to)
+        snaps = self._data.get_option_chain(req)
+        out = []
+        import re
+        pat = re.compile(r"^([A-Z]+)(\d{6})([CP])(\d{8})$")
+        for sym, snap in snaps.items():
+            m = pat.match(sym)
+            if not m:
+                continue
+            q = snap.latest_quote
+            if q is None:
+                continue
+            from datetime import datetime as _dt
+            exp = _dt.strptime(m.group(2), "%y%m%d").date()
+            oi = int(getattr(snap, "open_interest", 0) or 0)
+            out.append(Contract(symbol=sym, strike=int(m.group(4)) / 1000, expiry=exp,
+                                type="call" if m.group(3) == "C" else "put",
+                                bid=float(q.bid_price or 0), ask=float(q.ask_price or 0), open_interest=oi))
+        return out
+
+    def buy_to_open(self, occ: str, qty: int, limit: Optional[float] = None) -> Optional[str]:
+        if self.cfg.dry_run or not self.broker.connected:
+            log.info("DRY_RUN buy_to_open %s x%d @ %s", occ, qty, limit)
+            return None
+        from alpaca.trading.enums import OrderSide, TimeInForce
+        from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest
+        if limit:
+            req = LimitOrderRequest(symbol=occ, qty=qty, side=OrderSide.BUY, time_in_force=TimeInForce.DAY,
+                                    limit_price=round(limit, 2))
+        else:
+            req = MarketOrderRequest(symbol=occ, qty=qty, side=OrderSide.BUY, time_in_force=TimeInForce.DAY)
+        o = self.broker._client.submit_order(req)
+        log.info("option buy_to_open %s x%d id=%s", occ, qty, o.id)
+        return str(o.id)
+
+    def sell_to_close(self, occ: str, qty: int, limit: Optional[float] = None) -> Optional[str]:
+        if self.cfg.dry_run or not self.broker.connected:
+            log.info("DRY_RUN sell_to_close %s x%d @ %s", occ, qty, limit)
+            return None
+        from alpaca.trading.enums import OrderSide, TimeInForce
+        from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest
+        if limit:
+            req = LimitOrderRequest(symbol=occ, qty=qty, side=OrderSide.SELL, time_in_force=TimeInForce.DAY,
+                                    limit_price=round(limit, 2))
+        else:
+            req = MarketOrderRequest(symbol=occ, qty=qty, side=OrderSide.SELL, time_in_force=TimeInForce.DAY)
+        o = self.broker._client.submit_order(req)
+        log.info("option sell_to_close %s x%d id=%s", occ, qty, o.id)
+        return str(o.id)
+
+    def mark(self, occ: str) -> Optional[float]:
+        """Mid of the latest quote, or None."""
+        from alpaca.data.requests import OptionLatestQuoteRequest
+        try:
+            q = self._data.get_option_latest_quote(OptionLatestQuoteRequest(symbol_or_symbols=occ, feed="indicative"))
+            quote = q.get(occ)
+            if not quote or not quote.bid_price or not quote.ask_price:
+                return None
+            return (float(quote.bid_price) + float(quote.ask_price)) / 2
+        except Exception as exc:  # noqa: BLE001
+            log.warning("option mark failed %s: %s", occ, exc)
+            return None

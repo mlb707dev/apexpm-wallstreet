@@ -6,6 +6,9 @@ def test_default_and_switch(cfg):
     j = Journal(":memory:")
     j._conn.executescript("CREATE TABLE IF NOT EXISTS strategy_events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, name TEXT, event TEXT, detail TEXT)")
     assert get_profile(j, 500.0) == "hyper" and get_profile(j, 5000.0) == "growth" and get_profile(j, 50000.0) == "standard"
+    from apexpm.profiles import band_rules
+    assert band_rules(500.0)["daily_loss_pct"] == 0.0 and band_rules(500.0)["max_positions"] == 1
+    assert band_rules(2000.0)["daily_loss_pct"] == 0.15 and band_rules(20000.0)["daily_loss_pct"] == 0.08
     set_profile(j, "conservative", "test")
     assert get_profile(j) == "conservative"
     ev = j.q("SELECT * FROM strategy_events")

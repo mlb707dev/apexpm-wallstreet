@@ -111,6 +111,8 @@ MIGRATIONS = [
     ("trades", "initial_stop", "REAL"),
     ("trades", "runner", "INTEGER NOT NULL DEFAULT 0"),
     ("trades", "be_done", "INTEGER NOT NULL DEFAULT 0"),
+    ("trades", "asset", "TEXT NOT NULL DEFAULT 'stock'"),
+    ("trades", "contract", "TEXT"),
     ("rejections", "session_date", "TEXT"),
     ("scans", "session_date", "TEXT"),
 ]
@@ -196,7 +198,10 @@ class Journal:
         if t is None or t["closed_at"] is not None:
             return False
         sign = 1 if t["direction"] == "long" else -1
-        pnl = (exit_price - t["entry"]) * sign * t["qty"]
+        mult = 100 if (t["asset"] or "stock") == "option" else 1
+        if mult == 100:
+            sign = 1          # long calls and long puts both profit when the premium rises
+        pnl = (exit_price - t["entry"]) * sign * t["qty"] * mult
         risk = abs(t["entry"] - (t["initial_stop"] or t["stop"]))
         rr_real = ((exit_price - t["entry"]) * sign / risk) if risk else None
         with self.tx() as c:

@@ -99,7 +99,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 8</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 10</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -252,7 +252,7 @@ function renderBot(b){
     <div class="row"><span>Max trades / day</span><b>${e.max_trades_per_day}</b></div>
     <div class="row"><span>Max open positions</span><b>${e.max_positions}</b></div>
     <div class="row"><span>Kelly fraction</span><b>×${fmt(e.kelly_fraction,2)}</b></div>
-    <div class="row"><span>Daily loss cap</span><b>${e.max_daily_loss_pct?(e.max_daily_loss_pct*100).toFixed(0)+'% of start equity (max '+money(e.max_daily_loss)+')':money(e.max_daily_loss)}</b></div>
+    <div class="row"><span>Daily loss cap</span><b>${e.max_daily_loss_pct?(e.max_daily_loss_pct*100).toFixed(0)+'% of start equity':'<span class="pos">off (in-trade stops only)</span>'}</b></div>
     <div class="row"><span>Stop cooldown</span><b>${e.stop_cooldown_min} min</b></div>
     <p style="margin-top:8px">Hard ceilings in config still apply on every profile.</p>`;
 }
@@ -302,7 +302,7 @@ async function loadHome(){
   const keys = ['auto'].concat(Object.keys(st.profiles));
   $('#seg').style.gridTemplateColumns = 'repeat('+keys.length+',1fr)';
   $('#seg').innerHTML = keys.map(k=>`<button class="${(st.profile_mode==='auto'?k==='auto':k===st.profile)?'on':''}" onclick="setProfile('${k}')">${k}${k==='auto'?' ('+st.profile+')':''}</button>`).join('');
-  $('#profblurb').textContent = (st.profile_mode==='auto' ? 'Auto by equity: hyper under $2,500, growth to $10,000, standard above. Now: ' : '') + st.profiles[st.profile].blurb;
+  $('#profblurb').textContent = (st.profile_mode==='auto' ? 'Auto by equity: hyper under $1k, growth to $10k, standard above; safeguards return at $1k, $5k, $10k, $50k, $100k. Now: ' : '') + st.profiles[st.profile].blurb;
 }
 async function setPause(paused){
   const note = await ask((paused?'Pause':'Resume')+' new entries', paused?'No new positions until resumed. Exits keep running.':'New entries allowed again.'); if(note===null) return;
@@ -318,14 +318,14 @@ async function setProfile(name){
 async function loadPositions(){
   const ps = await api('/api/positions');
   $('#poslist').innerHTML = `<h3>Open & pending <span class="ago">${ps.length} rows</span></h3>` + (ps.length ? '<table><tr><th>#</th><th>Status</th><th>Setup</th><th>Dir</th><th>Qty</th><th>Entry</th><th>Last</th><th>Unreal</th><th>R</th><th>To target</th><th>To stop</th><th>Held</th><th>Max hold</th></tr>' +
-    ps.map(t=>`<tr><td>${t.id}</td><td>${t.status}</td><td>${t.setup}</td><td>${t.direction}</td><td>${t.qty}</td><td>${fmt(t.entry)}</td><td>${fmt(t.last_price)}</td><td class="${cls(t.unrealized_pnl)}">${t.unrealized_pnl==null?'—':money(t.unrealized_pnl)}</td><td class="${cls(t.unrealized_r)}">${fmt(t.unrealized_r)}</td><td>${fmt(t.to_target)}</td><td>${fmt(t.to_stop)}</td><td>${t.held_min==null?'—':t.held_min+'m'}</td><td>${t.max_hold_min}m</td></tr>`).join('') + '</table>'
+    ps.map(t=>`<tr><td>${t.id}</td><td>${t.status}</td><td>${t.setup}${t.contract?'<br><span class="ago">'+t.contract+'</span>':''}</td><td>${t.direction}</td><td>${t.qty}</td><td>${fmt(t.entry)}</td><td>${fmt(t.last_price)}</td><td class="${cls(t.unrealized_pnl)}">${t.unrealized_pnl==null?'—':money(t.unrealized_pnl)}</td><td class="${cls(t.unrealized_r)}">${fmt(t.unrealized_r)}</td><td>${fmt(t.to_target)}</td><td>${fmt(t.to_stop)}</td><td>${t.held_min==null?'—':t.held_min+'m'}</td><td>${t.max_hold_min}m</td></tr>`).join('') + '</table>'
     : '<div class="empty">No open or pending positions.</div>');
 }
 
 async function loadActivity(){
   const ts = await api('/api/trades');
   $('#trades').innerHTML = ts.length ? '<table><tr><th>#</th><th>Opened</th><th>Setup</th><th>Dir</th><th>Qty</th><th>Entry</th><th>Stop</th><th>Target</th><th>Exit</th><th>Reason</th><th>R</th><th>P&L</th><th>Mode</th><th>Status</th></tr>' +
-    ts.map(t=>`<tr><td>${t.id}</td><td>${t.opened_at.slice(5,16).replace('T',' ')}</td><td>${t.setup}</td><td>${t.direction}</td><td>${t.qty}</td><td>${fmt(t.entry)}</td><td>${fmt(t.stop)}</td><td>${fmt(t.target)}</td><td>${fmt(t.exit_price)}</td><td>${t.exit_reason||''}</td><td class="${cls(t.rr_realized)}">${t.rr_realized==null?'—':fmt(t.rr_realized)}</td><td class="${cls(t.pnl)}">${t.pnl==null?'—':money(t.pnl)}</td><td>${t.mode}</td><td>${t.status}</td></tr>`).join('') + '</table>' : '<div class="empty">No trades journaled yet.</div>';
+    ts.map(t=>`<tr><td>${t.id}</td><td>${t.opened_at.slice(5,16).replace('T',' ')}</td><td>${t.setup}${t.contract?'<br><span class="ago">'+t.contract+'</span>':''}</td><td>${t.direction}</td><td>${t.qty}</td><td>${fmt(t.entry)}</td><td>${fmt(t.stop)}</td><td>${fmt(t.target)}</td><td>${fmt(t.exit_price)}</td><td>${t.exit_reason||''}</td><td class="${cls(t.rr_realized)}">${t.rr_realized==null?'—':fmt(t.rr_realized)}</td><td class="${cls(t.pnl)}">${t.pnl==null?'—':money(t.pnl)}</td><td>${t.mode}</td><td>${t.status}</td></tr>`).join('') + '</table>' : '<div class="empty">No trades journaled yet.</div>';
   const rj = await api('/api/rejections');
   $('#rej').innerHTML = rj.length ? '<table><tr><th>Date</th><th>Setup</th><th>Reason</th><th>N</th></tr>' + rj.map(r=>`<tr><td>${r.date}</td><td>${r.setup}</td><td>${r.reason}</td><td>${r.n}</td></tr>`).join('') + '</table>' : '<div class="empty">No rejections in the last 7 days.</div>';
   const ev = await api('/api/events');
