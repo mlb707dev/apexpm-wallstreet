@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
+from . import calendar as cal
 from . import profiles
 from .config import Config
 from .db import Journal, et_date
@@ -40,6 +41,7 @@ class Api:
         self.j = journal
         self.reg = Registry(journal, cfg)
         self.reg.register(ExampleBreakout(), "paper")
+        cal.ensure_table(journal)
         self._broker = None
         if cfg.alpaca_api_key and cfg.alpaca_secret_key:
             try:
@@ -135,7 +137,44 @@ class Api:
                           "max_daily_loss": self.cfg.max_daily_loss, "kill_dd_pct": self.cfg.kill_dd_pct,
                           "stop_cooldown_min": self.cfg.stop_cooldown_min},
             "halted": self.j.get_state(f"halted:{et_date()}") == "1",
+            "entries_paused": profiles.entries_paused(self.j),
+            "day": self._day(),
+            "volume": self.volume(),
         }
+
+    def _day(self) -> Dict[str, Any]:
+        raw = self.j.get_state("day_context")
+        if raw:
+            d = json.loads(raw)
+            if d.get("date") == et_date():
+                return d
+        from datetime import date as _date
+        return cal.day_context(_date.fromisoformat(et_date()), self.cfg.symbols, self.j).as_dict()
+
+    def volume(self) -> Dict[str, Any]:
+        out = {}
+        for s in self.cfg.symbols:
+            try:
+                v = json.loads(self.j.get_state(f"vol:{s}") or "{}")
+                today = float(self.j.get_state(f"vol_today:{s}") or 0)
+                v["today"] = today
+                v["vs_avg5"] = (today / v["avg5"]) if v.get("avg5") else None
+                v["vs_avg30"] = (today / v["avg30"]) if v.get("avg30") else None
+                out[s] = v
+            except Exception:  # noqa: BLE001
+                out[s] = {}
+        return out
+
+    def calendar(self) -> Dict[str, Any]:
+        from datetime import date as _date
+        today = _date.fromisoformat(et_date())
+        return {"today": cal.day_context(today, self.cfg.symbols, self.j).as_dict(),
+                "upcoming": cal.upcoming(self.j, today, 30, self.cfg.symbols),
+                "policy": {k: {"label": v["label"], "size_mult": v["size_mult"], "no_entry": v["no_entry"]} for k, v in cal.POLICY.items()}}
+
+    def set_paused(self, paused: bool, note: str) -> Dict[str, Any]:
+        profiles.set_entries_paused(self.j, paused, f"dashboard: {note}" if note else "dashboard")
+        return {"ok": True, "entries_paused": paused}
 
     def positions(self) -> List[dict]:
         out = []
@@ -318,7 +357,7 @@ def make_handler(api: Api, token: str = ""):
                 "/api/overview": api.overview, "/api/bot": api.bot, "/api/positions": api.positions,
                 "/api/trades": api.trades, "/api/strategies": api.strategies, "/api/analytics": api.analytics,
                 "/api/rejections": api.rejections, "/api/events": api.events, "/api/reports": api.reports,
-                "/api/plan": api.plan, "/api/settings": api.settings,
+                "/api/plan": api.plan, "/api/settings": api.settings, "/api/calendar": api.calendar,
             }
             if path in routes:
                 try:
@@ -342,6 +381,8 @@ def make_handler(api: Api, token: str = ""):
                 return self._json(api.set_status(str(body.get("name", "")), str(body.get("status", "")), str(body.get("note", ""))))
             if path == "/api/settings/profile":
                 return self._json(api.set_profile(str(body.get("profile", "")), str(body.get("note", ""))))
+            if path == "/api/settings/pause":
+                return self._json(api.set_paused(bool(body.get("paused")), str(body.get("note", ""))))
             return self._json({"ok": False, "error": "not_found"}, 404)
 
         def log_message(self, *_):

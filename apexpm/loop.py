@@ -22,7 +22,8 @@ from .data import DataFeed
 from .db import Journal, et_date
 from .levels import LevelMap, levels_from_daily
 from .log import get_logger, safe
-from .profiles import EffectiveConfig, get_profile
+from . import calendar as cal
+from .profiles import EffectiveConfig, entries_paused, get_profile
 from .registry import Registry
 from .ribbon import ribbon_from_closes
 from .sizing import size_trade
@@ -48,6 +49,8 @@ class Bot:
         self._levels: Dict[str, LevelMap] = {}
         self._reached: Dict[str, Dict[str, float]] = {}
         self._today = ""
+        self._day_ctx: Optional[cal.DayContext] = None
+        cal.ensure_table(self.journal)
 
     # ---- startup ----------------------------------------------------------
     def startup(self, now_utc: Optional[datetime] = None) -> None:
@@ -101,6 +104,12 @@ class Bot:
         self._today = today
         self._levels.clear()
         self._reached.clear()
+        from datetime import date as _date
+        self._day_ctx = cal.day_context(_date.fromisoformat(today), self.cfg.symbols, self.journal)
+        safe(self.journal.set_state, "day_context", json.dumps(self._day_ctx.as_dict()))
+        if self._day_ctx.events:
+            self.log.info("calendar %s: %s (size x%.2f, windows %s)", today,
+                          ", ".join(e["label"] for e in self._day_ctx.events), self._day_ctx.size_mult, self._day_ctx.no_entry)
         if self.state:
             self.state.trades_today = self.journal.trades_today(today)
             self.state.realized_pnl_today = self.journal.realized_pnl_today(today)
@@ -121,6 +130,12 @@ class Bot:
             self.log.warning("%s: levels unavailable: %s", symbol, exc)
             return None
         self._levels[symbol] = lv
+        try:
+            v = daily["volume"]
+            safe(self.journal.set_state, f"vol:{symbol}", json.dumps({
+                "avg5": float(v.tail(5).mean()), "avg30": float(v.tail(30).mean()), "prev": float(v.iloc[-1])}))
+        except Exception:  # noqa: BLE001
+            pass
         self.journal.save_plan(date=today, symbol=symbol, anchor=lv.anchor, atr=lv.atr,
                                levels_json=json.dumps(lv.as_dict()))
         self.log.info("%s levels anchor=%.2f atr=%.2f bands=%s", symbol, lv.anchor, lv.atr, sorted(lv.up))
@@ -137,6 +152,13 @@ class Bot:
             self.log.warning("%s: not enough intraday bars", symbol)
             return None
         price = self.feed.last_price(symbol, self.cfg.max_price_age_sec) or float(ltf["close"].iloc[-1])
+        try:
+            if "volume" in ltf and hasattr(ltf.index, "tz_convert"):
+                et_idx = ltf.index.tz_convert(ET)
+                today_mask = et_idx.date == now_utc.astimezone(ET).date()
+                safe(self.journal.set_state, f"vol_today:{symbol}", str(float(ltf["volume"][today_mask].sum())))
+        except Exception:  # noqa: BLE001
+            pass
         rl = ribbon_from_closes(ltf["close"].values, self.cfg.ema_fast, self.cfg.ema_mid, self.cfg.ema_slow)
         rh = ribbon_from_closes(htf["close"].values, self.cfg.ema_fast, self.cfg.ema_mid, self.cfg.ema_slow)
         prev_rl = None
@@ -194,7 +216,8 @@ class Bot:
     def _scan_symbol(self, symbol: str, today: str, now_utc: datetime, now_et: datetime) -> List[Signal]:
         assert self.state is not None
         taken: List[Signal] = []
-        ecfg = EffectiveConfig(self.cfg, get_profile(self.journal))
+        ctx = self._day_ctx or cal.day_context(now_et.date(), self.cfg.symbols, self.journal)
+        ecfg = EffectiveConfig(self.cfg, get_profile(self.journal), ctx.size_mult)
         snap = self.snapshot(symbol, today, now_utc)
         if snap is None:
             return taken
@@ -214,6 +237,16 @@ class Bot:
             return taken
         if today in self.cfg.blackout_dates:
             reject(symbol, "session", "blackout_date")
+            return taken
+        if entries_paused(self.journal):
+            reject(symbol, "session", "entries_paused")
+            return taken
+        if symbol in ctx.skip_symbols:
+            reject(symbol, "session", "earnings_skip")
+            return taken
+        blocked = ctx.entries_blocked_at(now_et.strftime("%H:%M"))
+        if blocked:
+            reject(symbol, "session", blocked)
             return taken
 
         active = self.registry.active(symbol)
@@ -242,6 +275,13 @@ class Bot:
             if sz.qty <= 0:
                 reject(symbol, strat.name, f"size:{sz.reason}", sig.direction)
                 continue
+            cm = ecfg.confluence_mult(int(sig.context.get("confluence", 1)))
+            if cm != 1.0:
+                cap = min(self.cfg.max_pos_dollars, self.state.equity * self.cfg.max_notional_pct) / snap.price
+                qty = min(sz.qty * cm, cap)
+                qty = round(qty, 3) if self.cfg.fractional_shares else float(int(qty))
+                sz = sz.__class__(qty, sz.dollar_risk * cm, sz.kelly_full, sz.kelly_used, sz.vol_scale, qty * snap.price)
+                sig.context["confluence_mult"] = cm
             chased = abs(snap.price - sig.entry) > self.cfg.level_tolerance_atr * snap.levels.atr * 2
             if chased and not self.cfg.allow_gap_fills and not sig.context.get("fill_at_market"):
                 reject(symbol, strat.name, "gap_fill_skipped", sig.direction)

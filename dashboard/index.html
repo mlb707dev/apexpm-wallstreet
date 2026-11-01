@@ -116,7 +116,11 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
         <div><div class="k">Cash</div><div class="v sm" id="t_cash">—</div></div>
         <div><div class="k">Trades today</div><div class="v" id="t_trades">—</div></div>
         <div><div class="k">Pending orders</div><div class="v" id="t_pending">—</div></div>
+        <div><div class="k">Day ATR</div><div class="v sm" id="t_atr">—</div></div>
+        <div><div class="k">Vol vs 5d avg</div><div class="v sm" id="t_vol5">—</div></div>
+        <div><div class="k">Vol vs 30d avg</div><div class="v sm" id="t_vol30">—</div></div>
       </div></div>
+    <div class="card" id="daycard"><h3>Market calendar <span class="ago" id="daydate"></span></h3><div id="dayevents" class="empty">Loading…</div></div>
     <div class="card"><h3>Risk profile <span id="profchip2" class="chip research">…</span></h3>
       <div class="seg" id="seg"></div><p id="profblurb"></p>
       <div id="eff" style="margin-top:8px"></div></div>
@@ -137,7 +141,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
 </section>
 
 <section id="analytics"><div id="ana"></div></section>
-<section id="reports"><div id="reportlist"></div></section>
+<section id="reports"><div class="card tbl"><h3>Upcoming events <span class="ago">next 30 days</span></h3><div id="upcoming"></div></div><div id="reportlist"></div></section>
 
 <section id="settings">
   <div class="card"><h3>Strategies</h3><div id="stratlist"></div></div>
@@ -162,11 +166,13 @@ async function api(p, opts={}){
   if (LS.tok) headers['Authorization'] = 'Bearer ' + LS.tok;
   const r = await fetch(base + p, Object.assign({}, opts, {headers}));
   if (r.status === 401) { showLogin(); throw new Error('unauthorized'); }
-  if (!r.ok) throw new Error(p+' '+r.status);
+  if (r.status === 404 && !LS.api) { showLogin(); throw new Error('unauthorized'); }
+  if (!r.ok) throw new Error(p+' '+r.status + (r.status===404 ? ' (is the API address right?)' : ''));
   return r.json();
 }
 function showLogin(){ $('#login').style.display='flex'; $('#l_api').value = LS.api; }
-function doLogin(){ LS.api = $('#l_api').value.trim().replace(/\/$/,''); LS.tok = $('#l_tok').value.trim(); $('#login').style.display='none'; loadAll().catch(e=>{ $('#l_err').textContent='Could not sign in: '+e.message; $('#l_err').style.display='block'; showLogin(); }); return false; }
+function normApi(v){ v = (v||'').trim().replace(/\/+$/,''); if (v && !/^https?:\/\//i.test(v)) v = 'https://' + v; return v; }
+function doLogin(){ LS.api = normApi($('#l_api').value); LS.tok = $('#l_tok').value.trim(); $('#login').style.display='none'; loadAll().catch(e=>{ $('#l_err').textContent='Could not sign in: '+e.message+'. Check the API address (starts with https://) and the token.'; $('#l_err').style.display='block'; showLogin(); }); return false; }
 function logout(){ LS.tok=''; showLogin(); }
 function showErr(e){ if(e.message==='unauthorized') return; const el=$('#err'); el.style.display='block'; el.textContent='Dashboard error: '+e.message; }
 
@@ -179,7 +185,24 @@ function renderBot(b){
     <div class="row"><span>Strategies on</span><b style="white-space:normal;text-align:right">${(b.strategies_on||[]).join(', ')||'none'}</b></div>
     <div class="row"><span>Live-armed strategies</span><b>${(b.live_armed||[]).join(', ')||'none'}</b></div>
     <div class="row"><span>Kill switch</span><b>${b.halted?'<span class="neg">HALTED</span>':'armed · '+(b.effective.kill_dd_pct*100).toFixed(0)+'% DD'}</b></div>
-    <div class="row"><span>Updated</span><b class="ago">${ago(b.heartbeat_age_sec)}</b></div>`;
+    <div class="row"><span>New entries</span><b>${b.entries_paused?'<span class="neg">PAUSED</span>':'<span class="pos">open</span>'}</b></div>
+    <div class="row"><span>Updated</span><b class="ago">${ago(b.heartbeat_age_sec)}</b></div>
+    <div class="actions">${b.entries_paused
+      ? '<button class="btn ok" onclick="setPause(false)">Resume entries</button>'
+      : '<button class="btn warn" onclick="setPause(true)">Pause entries now</button>'}
+      <button class="btn" onclick="setProfile(\'conservative\')">Tighten (conservative)</button></div>`;
+  const v = (b.volume||{})[Object.keys(b.volume||{})[0]] || {};
+  $('#t_vol5').textContent = v.vs_avg5==null ? '—' : Math.round(v.vs_avg5*100)+'%';
+  $('#t_vol30').textContent = v.vs_avg30==null ? '—' : Math.round(v.vs_avg30*100)+'%';
+  const d = b.day;
+  if (d) {
+    $('#daydate').textContent = d.date;
+    $('#dayevents').className = d.events.length ? '' : 'empty';
+    $('#dayevents').innerHTML = d.events.length
+      ? d.events.map(e=>`<div class="row"><span>${e.label}</span><b class="${e.type==='earnings_self'?'neg':''}">${e.type.replace('_',' ')}</b></div>`).join('') +
+        `<div class="row"><span>Policy today</span><b>size ×${d.size_mult}${d.no_entry.length?' · no entries '+d.no_entry.map(w=>w[0]+'–'+w[1]).join(', '):''}${d.skip_symbols.length?' · skip '+d.skip_symbols.join(', '):''}</b></div>`
+      : 'No scheduled events today. Normal policy.';
+  }
   ['#profchip','#profchip2'].forEach(s=>{ $(s).textContent=b.profile; $(s).className='chip '+(b.profile==='growth'?'live':b.profile==='conservative'?'suspended':'paper'); });
   const e = b.effective;
   $('#eff').innerHTML = `
@@ -231,10 +254,16 @@ async function loadHome(){
     let h = `<div class="lv anchor"><span>${plan.symbol} anchor · ATR ${fmt(lv.atr)}</span><b>${fmt(lv.anchor)}</b></div><div class="levels">`;
     ks.forEach(k=>{ h += `<div class="lv up"><span>+${k}</span><b>${fmt(lv['+'+k])}</b></div><div class="lv dn"><span>−${k}</span><b>${fmt(lv['-'+k])}</b></div>`; });
     $('#plan').innerHTML = `<h3>Today's levels <span class="ago">${plan.date}</span></h3>` + h + '</div>';
+    $('#t_atr').textContent = fmt(lv.atr) + ' (' + (lv.atr/lv.anchor*100).toFixed(2) + '%)';
   }
   const st = await api('/api/settings');
   $('#seg').innerHTML = Object.keys(st.profiles).map(k=>`<button class="${k===st.profile?'on':''}" onclick="setProfile('${k}')">${k}</button>`).join('');
   $('#profblurb').textContent = st.profiles[st.profile].blurb;
+}
+async function setPause(paused){
+  const note = prompt((paused?'Pause':'Resume')+' new entries. Why? (recorded)'); if(note===null) return;
+  const r = await api('/api/settings/pause',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paused,note})});
+  if(!r.ok) alert(r.error); loadHome().catch(showErr);
 }
 async function setProfile(name){
   const note = prompt('Why switch to '+name+'? (recorded as a governance event)') ; if(note===null) return;
@@ -271,6 +300,9 @@ async function loadAnalytics(){
 }
 
 async function loadReports(){
+  const c = await api('/api/calendar');
+  $('#upcoming').innerHTML = c.upcoming.length ? '<table><tr><th>Date</th><th>Event</th><th>Size</th><th>No-entry windows</th></tr>' +
+    c.upcoming.map(e=>`<tr><td>${e.date}</td><td>${e.label}</td><td>×${e.size_mult}</td><td>${(e.no_entry||[]).map(w=>w[0]+'–'+w[1]).join(', ')||'—'}</td></tr>`).join('') + '</table>' : '<div class="empty">No events in the next 30 days.</div>';
   const rs = await api('/api/reports');
   $('#reportlist').innerHTML = rs.length ? rs.map(r=>`<div class="card"><h3>${r.date}<span class="chip ${(r.realized_pnl||0)>=0?'live':'suspended'}">${money(r.realized_pnl)}</span></h3>
     <p class="mono">trades ${r.trades} · wins ${r.wins} · overholds ${r.overholds} · rejections ${r.rejections}</p><details style="margin-top:8px"><summary style="font-size:12px;color:var(--dim)">Full report</summary><pre>${(r.notes||'').replace(/</g,'&lt;')}</pre></details></div>`).join('')
