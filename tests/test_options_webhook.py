@@ -41,7 +41,7 @@ def test_contracts_for_risk():
 
 
 def test_webhook_validate():
-    good = {"secret": "s", "symbol": "SPY", "event": "level_break", "direction": "long", "level": 1.0, "ts": "x"}
+    good = {"secret": "s", "symbol": "SPY", "event": "golden_gate", "direction": "long", "level": 0.382, "ts": "x"}
     assert validate(good, "s") is None
     assert validate({**good, "secret": "wrong"}, "s") == "bad_secret"
     assert validate({**good, "event": "nope"}, "s") == "unknown_event"
@@ -52,8 +52,8 @@ def test_webhook_validate():
 def test_webhook_store_consume_once():
     j = Journal(":memory:")
     st = WebhookStore(j)
-    st.put({"symbol": "spy", "event": "level_break", "direction": "long", "level": 1.0}, None)
-    st.put({"symbol": "spy", "event": "level_break", "direction": "long", "level": 1.0}, "bad_secret")
+    st.put({"symbol": "spy", "event": "golden_gate", "direction": "long", "level": 0.382}, None)
+    st.put({"symbol": "spy", "event": "golden_gate", "direction": "long", "level": 0.382}, "bad_secret")
     hit = st.consume("SPY", "long")
-    assert hit is not None and hit["level"] == 1.0
+    assert hit is not None and hit["level"] == 0.382
     assert st.consume("SPY", "long") is None   # consumed; the bad one is never served

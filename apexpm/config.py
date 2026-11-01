@@ -72,14 +72,25 @@ class Config:
 
     # Levels and ribbon
     atr_period: int = field(default_factory=lambda: _i("ATR_PERIOD", 14))
-    ema_fast: int = field(default_factory=lambda: _i("EMA_FAST", 9))
+    ema_fast: int = field(default_factory=lambda: _i("EMA_FAST", 8))
     ema_mid: int = field(default_factory=lambda: _i("EMA_MID", 21))
-    ema_slow: int = field(default_factory=lambda: _i("EMA_SLOW", 50))
+    ema_slow: int = field(default_factory=lambda: _i("EMA_SLOW", 34))
 
+    # Golden Gate parameters
+    gg_entry_level: float = field(default_factory=lambda: _f("GG_ENTRY_LEVEL", 0.382))
+    gg_target_level: float = field(default_factory=lambda: _f("GG_TARGET_LEVEL", 0.618))
+    gg_stop_level: float = field(default_factory=lambda: _f("GG_STOP_LEVEL", 0.236))
+    gg_stop_buffer_atr: float = field(default_factory=lambda: _f("GG_STOP_BUFFER_ATR", 0.05))
+    gg_min_rr: float = field(default_factory=lambda: _f("GG_MIN_RR", 1.2))
+    gg_max_hold_min: int = field(default_factory=lambda: _i("GG_MAX_HOLD_MIN", 90))
     level_tolerance_atr: float = field(default_factory=lambda: _f("LEVEL_TOLERANCE_ATR", 0.02))
-    allow_gap_fills: bool = field(default_factory=lambda: _b("ALLOW_GAP_FILLS", False))
+    gg_require_ribbon_ltf: bool = field(default_factory=lambda: _b("GG_REQUIRE_RIBBON_LTF", True))
+    gg_require_ribbon_htf: bool = field(default_factory=lambda: _b("GG_REQUIRE_RIBBON_HTF", True))
+    gg_allow_gap_fills: bool = field(default_factory=lambda: _b("GG_ALLOW_GAP_FILLS", False))
 
     # Regime
+    vix_min: float = field(default_factory=lambda: _f("VIX_MIN", 10.0))
+    vix_max: float = field(default_factory=lambda: _f("VIX_MAX", 35.0))
     blackout_dates: List[str] = field(default_factory=lambda: _list("BLACKOUT_DATES", []))
 
     # Sizing
@@ -103,7 +114,26 @@ class Config:
     stop_cooldown_min: int = field(default_factory=lambda: _i("STOP_COOLDOWN_MIN", 30))
     live_abort_delay_sec: int = field(default_factory=lambda: _i("LIVE_ABORT_DELAY_SEC", 10))
 
+    # Vomy
+    vomy_enabled: bool = field(default_factory=lambda: _b("VOMY_ENABLED", False))
+    vomy_trigger_level: float = field(default_factory=lambda: _f("VOMY_TRIGGER_LEVEL", 0.236))
+    vomy_min_reached: float = field(default_factory=lambda: _f("VOMY_MIN_REACHED", 0.382))
+    vomy_target_level: float = field(default_factory=lambda: _f("VOMY_TARGET_LEVEL", -0.236))
+    vomy_stop_level: float = field(default_factory=lambda: _f("VOMY_STOP_LEVEL", 0.382))
+    vomy_stop_buffer_atr: float = field(default_factory=lambda: _f("VOMY_STOP_BUFFER_ATR", 0.05))
+    vomy_min_rr: float = field(default_factory=lambda: _f("VOMY_MIN_RR", 1.2))
+    vomy_max_hold_min: int = field(default_factory=lambda: _i("VOMY_MAX_HOLD_MIN", 120))
 
+    # Gap continuation
+    gap_enabled: bool = field(default_factory=lambda: _b("GAP_ENABLED", False))
+    gap_min_open_level: float = field(default_factory=lambda: _f("GAP_MIN_OPEN_LEVEL", 0.382))
+    gap_max_open_level: float = field(default_factory=lambda: _f("GAP_MAX_OPEN_LEVEL", 0.55))
+    gap_target_level: float = field(default_factory=lambda: _f("GAP_TARGET_LEVEL", 0.618))
+    gap_stop_level: float = field(default_factory=lambda: _f("GAP_STOP_LEVEL", 0.236))
+    gap_stop_buffer_atr: float = field(default_factory=lambda: _f("GAP_STOP_BUFFER_ATR", 0.05))
+    gap_min_rr: float = field(default_factory=lambda: _f("GAP_MIN_RR", 0.8))
+    gap_entry_bars: int = field(default_factory=lambda: _i("GAP_ENTRY_BARS", 2))
+    gap_max_hold_min: int = field(default_factory=lambda: _i("GAP_MAX_HOLD_MIN", 120))
 
     # EMA hold (owner's recipe) false-breakout switches
     eh_require_htf: bool = field(default_factory=lambda: _b("EH_REQUIRE_HTF", True))
@@ -177,6 +207,10 @@ class Config:
             problems.append("KELLY_FRACTION must be in (0, 1]")
         if not 0 < self.max_pos_pct <= 0.2:
             problems.append("MAX_POS_PCT must be in (0, 0.2]")
+        if self.gg_entry_level >= self.gg_target_level:
+            problems.append("GG_ENTRY_LEVEL must be below GG_TARGET_LEVEL")
+        if self.gg_stop_level >= self.gg_entry_level:
+            problems.append("GG_STOP_LEVEL must be below GG_ENTRY_LEVEL")
         if self.webhook_enabled and not self.webhook_secret:
             problems.append("WEBHOOK_ENABLED requires WEBHOOK_SECRET")
         if self.dashboard_bind not in ("127.0.0.1", "localhost") and not self.dashboard_token:

@@ -17,7 +17,7 @@ class Signal:
     stop: float
     target: float
     max_hold_min: int
-    level_targeted: float     # ATR multiple of the target band, e.g. 1.5
+    level_targeted: float     # fib multiple, e.g. 0.618
     rr: float
     context: Dict[str, object] = field(default_factory=dict)
 
@@ -31,7 +31,7 @@ class MarketSnapshot:
     ribbon_htf: Ribbon
     ltf_closes: List[float]
     regime: str = "unknown"
-    reached_today: Dict[str, float] = field(default_factory=dict)  # "long"/"short" -> max ATR multiple reached BEFORE this bar
+    reached_today: Dict[str, float] = field(default_factory=dict)  # "long"/"short" -> max fib reached BEFORE this bar
     bar_index_today: int = 0          # 0 = first bar of the session
     minutes_since_open: int = 0
     prev_ribbon_ltf: Optional[Ribbon] = None

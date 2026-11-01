@@ -41,5 +41,5 @@ def test_hyper_sizes_to_half_equity(cfg):
     assert e.max_pos_pct == 0.5
     cfg.fractional_shares = True
     r = size_trade(equity=500, price=100.0, entry=100.0, stop=98.0, target=104.0, atr=2.0, closed_pnls=[], cfg=e)
-    # half the equity at risk / $2 per share, capped by the notional ceiling
+    # $250 at risk / $2 per share = 125 shares, capped by notional (95% of $500 → 4.75 shares)
     assert r.qty > 0 and r.notional <= 500 * cfg.max_notional_pct + 1e-6

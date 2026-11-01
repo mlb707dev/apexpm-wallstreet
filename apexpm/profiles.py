@@ -21,7 +21,7 @@ PROFILES: Dict[str, Dict[str, float]] = {
     # (risk_abs), enough for one options contract at the premium stop. Two losses in a row
     # is a 75% drawdown at 0.5; the equity bands step down automatically as the account grows.
     "hyper":        {"risk_mult": 1.0, "risk_abs": 0.5, "trades_mult": 1.0, "kelly_mult": 1.0, "confluence_step": 0.0, "confluence_max": 1.0,
-                     "blurb": "Hyper growth: up to 50% of equity at risk per trade, one position at a time. For the smallest accounts only."},
+                     "blurb": "Hyper growth: up to 50% of equity at risk per trade, one position at a time. For the $500 → $2,500 phase only."},
 }
 DEFAULT = "auto"       # choose by equity band
 CEILINGS = {"risk_mult": 2.0, "trades_mult": 2.5, "kelly_mult": 1.5, "risk_abs": 0.6}

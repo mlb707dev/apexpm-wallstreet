@@ -303,7 +303,7 @@ class Backtester:
                 # relative volume: same time-of-day slot averaged over the prior sessions (not the last 20 bars)
                 vol_avg = float(slot_avg.get((ts_et.hour, ts_et.minute), 0.0)) if slot_avg is not None else 0.0
                 snap = MarketSnapshot(symbol=self.symbol, price=close, levels=levels,
-                                      ribbon_ltf=rl, ribbon_htf=rh, ltf_closes=[],
+                                      ribbon_ltf=rl, ribbon_htf=rh, ltf_closes=list(ltf["close"].values[max(0, gi - 60):gi + 1]),
                                       regime="trend_up" if rh.state == "bull" else "trend_down" if rh.state == "bear" else "chop",
                                       reached_today=prev_reached, bar_index_today=pos_i,
                                       minutes_since_open=int((ts_et.hour - 9) * 60 + ts_et.minute - 30),

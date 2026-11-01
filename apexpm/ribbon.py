@@ -1,4 +1,4 @@
-"""EMA stack (fast/mid/slow) on intraday bars."""
+"""Pivot Ribbon: 8/21/34 EMA stack on intraday bars."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -30,8 +30,8 @@ def ema(values: Sequence[float], span: int) -> pd.Series:
     return pd.Series(list(values), dtype=float).ewm(span=span, adjust=False).mean()
 
 
-def ribbon_from_closes(closes: Sequence[float], fast: int = 9, mid: int = 21,
-                       slow: int = 50) -> Ribbon:
+def ribbon_from_closes(closes: Sequence[float], fast: int = 8, mid: int = 21,
+                       slow: int = 34) -> Ribbon:
     if len(closes) < slow:
         raise ValueError(f"need at least {slow} closes, got {len(closes)}")
     return Ribbon(

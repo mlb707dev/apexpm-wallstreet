@@ -51,11 +51,19 @@ class Bot:
         self.broker = broker or Broker(cfg)
         self.feed = feed or DataFeed(cfg)
         self.registry = Registry(self.journal, cfg)
-        self.registry.register(ExampleBreakout(), "paper")
+        self.registry.register(GoldenGate(), "research")
+        self.registry.register(golden_gate_v2(), "paper")
+        self.registry.register(Vomy(), "paper" if cfg.vomy_enabled else "research")
+        self.registry.register(GapContinuation(), "paper" if cfg.gap_enabled else "research")
+        self.registry.register(EmaCross(), "research")
+        self.registry.register(EmaBounce(), "research")
+        self.registry.register(EmaHold(), "research")
+        self.registry.register(BandFade(), "research")
         self.obroker = OptionsBroker(cfg, self.broker)
         if cfg.options_enabled:
             chain = (lambda u, a, b: self.obroker.chain(u, a, b)) if self.obroker.connected else (lambda u, a, b: [])
-            self.registry.register(OptionsWrapper(ExampleBreakout(), chain, min_dte=cfg.opt_min_dte, max_dte=cfg.opt_max_dte), "research")
+            self.registry.register(OptionsWrapper(golden_gate_v2(), chain, min_dte=cfg.opt_min_dte, max_dte=cfg.opt_max_dte), "research")
+            self.registry.register(OptionsWrapper(EmaHold(), chain, min_dte=cfg.opt_min_dte, max_dte=cfg.opt_max_dte), "research")
         self.webhook: Optional[WebhookServer] = None
         self.news = NewsFeed(cfg, self.journal) if cfg.news_enabled else None
         self.state: Optional[riskmod.RiskState] = None
@@ -167,7 +175,8 @@ class Bot:
             pass
         self.journal.save_plan(date=today, symbol=symbol, anchor=lv.anchor, atr=lv.atr,
                                levels_json=json.dumps(extra))
-        self.log.info("%s levels anchor=%.2f atr=%.2f bands=%s", symbol, lv.anchor, lv.atr, sorted(lv.up))
+        self.log.info("%s levels anchor=%.2f atr=%.2f +.382=%.2f +.618=%.2f -.382=%.2f -.618=%.2f",
+                      symbol, lv.anchor, lv.atr, lv.up[0.382], lv.up[0.618], lv.down[0.382], lv.down[0.618])
         return lv
 
     # ---- one scan ---------------------------------------------------------
@@ -345,7 +354,7 @@ class Bot:
             observe_only = strat in observing
             sig, why = strat.evaluate(snap, self.cfg)
             if sig is None:
-                if why not in ("not_at_entry_level",):
+                if why not in ("not_at_entry_level", "no_failed_hold", "not_at_open", "not_in_gap_zone"):
                     reject(symbol, strat.name, why)
                 continue
             # conviction gate: several independent confirmations or no trade (journaled either way)
@@ -395,13 +404,13 @@ class Bot:
                 reject(symbol, strat.name, "fractional_short_not_allowed", sig.direction)
                 continue
             chased = abs(snap.price - sig.entry) > self.cfg.level_tolerance_atr * snap.levels.atr * 2
-            if chased and not self.cfg.allow_gap_fills and not sig.context.get("fill_at_market"):
+            if chased and not self.cfg.gg_allow_gap_fills and not sig.context.get("fill_at_market"):
                 reject(symbol, strat.name, "gap_fill_skipped", sig.direction)
                 continue
             hook = self.webhook.consume(symbol, sig.direction) if self.webhook else None
             agreed = None
             if hook is not None:
-                ref = sig.level_targeted
+                ref = self.cfg.gg_entry_level if hook["event"] == "golden_gate" else sig.level_targeted
                 agreed = abs(float(hook["level"]) - ref) <= self.cfg.level_tolerance_atr
                 self.log.info("webhook %s %s level=%s agreed=%s", hook["event"], hook["direction"], hook["level"], agreed)
             self._enter(sig, sz, snap, now_utc, webhook_agreed=agreed)
@@ -442,7 +451,8 @@ class Bot:
                 oid = self.broker.submit_market(sig.symbol, sz.qty, side)
             else:
                 # Marketable limit: fill now at the current price, capped a small
-                # tolerance beyond the level (the backtester's "next_open" model).
+                # tolerance beyond the level. Matches the backtest's "next_open"
+                # model, which tested best; a resting limit at the level tested negative.
                 tol = self.cfg.level_tolerance_atr * snap.levels.atr * 2
                 cap = sig.entry + tol if sig.direction == "long" else sig.entry - tol
                 limit = min(snap.price + 0.01, cap) if sig.direction == "long" else max(snap.price - 0.01, cap)
