@@ -83,7 +83,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
 </head>
 <body>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 3</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 4</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -173,7 +173,10 @@ async function api(p, opts={}){
 }
 function showLogin(){ $('#login').style.display='flex'; $('#l_api').value = LS.api; }
 function normApi(v){ v = (v||'').trim(); if(!v) return ''; if (!/^https?:\/\//i.test(v)) v = 'https://' + v; try { return new URL(v).origin; } catch(e) { return v.replace(/\/+$/,''); } }
-function doLogin(){ LS.api = normApi($('#l_api').value); LS.tok = $('#l_tok').value.trim(); $('#login').style.display='none'; loadAll().catch(e=>{ $('#l_err').textContent='Could not sign in: '+e.message+'. Check the API address (starts with https://) and the token.'; $('#l_err').style.display='block'; showLogin(); }); return false; }
+function normTok(v){ v = (v||'').trim(); if (v.includes('=')) v = v.slice(v.lastIndexOf('=')+1); return v.replace(/["'\s]/g,''); }
+function doLogin(){ LS.api = normApi($('#l_api').value); const t = normTok($('#l_tok').value); LS.tok = t;
+  if (!/^[a-z0-9]{24}$/.test(t)) { $('#l_err').textContent='Token looks wrong: got '+t.length+' characters ('+t.slice(0,2)+'…'+t.slice(-2)+'). It should be 24 lowercase letters and digits, the part after DASHBOARD_TOKEN= only.'; $('#l_err').style.display='block'; return false; }
+  $('#login').style.display='none'; loadAll().catch(e=>{ $('#l_err').textContent='Could not sign in: '+e.message+'. Token received: '+t.slice(0,2)+'…'+t.slice(-2)+' ('+t.length+' chars). API: '+LS.api; $('#l_err').style.display='block'; showLogin(); }); return false; }
 function logout(){ LS.tok=''; showLogin(); }
 function showErr(e){ if(e.message==='unauthorized') return; const el=$('#err'); el.style.display='block'; el.textContent='Dashboard error: '+e.message; }
 
