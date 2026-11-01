@@ -1,17 +1,20 @@
-"""Local dashboard: JSON API over the journal plus a static mobile-first page.
+"""Dashboard: JSON API over the journal plus a static mobile-first page (PWA).
 
-Binds to 127.0.0.1 only. No secrets are read or written here. Strategy status
-changes go through the registry so they are journaled as governance events.
-Hosting it anywhere public needs an authenticated API in front of this.
+Binds to 127.0.0.1 by default. Binding to the LAN requires DASHBOARD_TOKEN:
+the first visit carries ?token=..., which is then kept in an HttpOnly cookie.
+Strategy status changes go through the registry so they are journaled as
+governance events. Hosting it anywhere public needs an authenticated API in front of this.
 """
 from __future__ import annotations
 
+import hmac
 import json
+import mimetypes
 import os
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .config import Config
 from .db import Journal
@@ -102,20 +105,59 @@ class Api:
         return {"ok": True, "status": self.reg.status(name)}
 
 
-def make_handler(api: Api):
+STATIC_FILES = {"/manifest.json": "manifest.json", "/sw.js": "sw.js"}
+
+
+def make_handler(api: Api, token: str = ""):
     class Handler(BaseHTTPRequestHandler):
-        def _send(self, code: int, body: bytes, ctype: str = "application/json") -> None:
+        _set_cookie: Optional[str] = None
+
+        def _send(self, code: int, body: bytes, ctype: str = "application/json", cache: str = "no-store") -> None:
             self.send_response(code)
             self.send_header("Content-Type", ctype)
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", cache)
+            if self._set_cookie:
+                self.send_header("Set-Cookie", self._set_cookie)
+                self._set_cookie = None
             self.end_headers()
             self.wfile.write(body)
 
         def _json(self, obj: Any, code: int = 200) -> None:
             self._send(code, json.dumps(obj, default=str).encode())
 
+        def _authed(self) -> bool:
+            """No token configured → open (localhost only, enforced by config.validate).
+            Otherwise accept ?token= once (and set a cookie) or the cookie."""
+            if not token:
+                return True
+            q = parse_qs(urlparse(self.path).query)
+            given = (q.get("token") or [""])[0]
+            if given and hmac.compare_digest(given, token):
+                self._set_cookie = f"apexpm_token={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000"
+                return True
+            cookie = self.headers.get("Cookie", "")
+            for part in cookie.split(";"):
+                k, _, v = part.strip().partition("=")
+                if k == "apexpm_token" and hmac.compare_digest(v, token):
+                    return True
+            return False
+
+        def _static(self, rel: str, cache: str = "no-store") -> None:
+            p = os.path.join(STATIC_DIR, rel)
+            if not os.path.isfile(p) or not os.path.abspath(p).startswith(os.path.abspath(STATIC_DIR)):
+                return self._send(404, b"not found", "text/plain")
+            ctype = mimetypes.guess_type(p)[0] or "application/octet-stream"
+            with open(p, "rb") as f:
+                return self._send(200, f.read(), ctype, cache)
+
         def do_GET(self):  # noqa: N802
             path = urlparse(self.path).path
+            if path in STATIC_FILES:
+                return self._static(STATIC_FILES[path])
+            if path.startswith("/icons/"):
+                return self._static(path.lstrip("/"), cache="public, max-age=86400")
+            if not self._authed():
+                return self._send(401, b"<h3>ApexPM: add ?token=... to the URL once</h3>", "text/html")
             routes = {
                 "/api/overview": api.overview, "/api/trades": api.trades, "/api/strategies": api.strategies,
                 "/api/rejections": api.rejections, "/api/events": api.events, "/api/reports": api.reports,
@@ -127,14 +169,12 @@ def make_handler(api: Api):
                 except Exception as exc:  # noqa: BLE001
                     return self._json({"error": str(exc)}, 500)
             if path in ("/", "/index.html"):
-                try:
-                    with open(os.path.join(STATIC_DIR, "index.html"), "rb") as f:
-                        return self._send(200, f.read(), "text/html; charset=utf-8")
-                except FileNotFoundError:
-                    return self._send(404, b"dashboard/index.html missing", "text/plain")
+                return self._static("index.html")
             return self._send(404, b"not found", "text/plain")
 
         def do_POST(self):  # noqa: N802
+            if not self._authed():
+                return self._json({"ok": False, "error": "unauthorized"}, 401)
             path = urlparse(self.path).path
             n = int(self.headers.get("Content-Length", "0") or 0)
             try:
@@ -152,11 +192,26 @@ def make_handler(api: Api):
     return Handler
 
 
-def serve(cfg: Config, port: int = 8788, block: bool = True) -> HTTPServer:
+def serve(cfg: Config, port: Optional[int] = None, block: bool = True) -> HTTPServer:
+    port = port or cfg.dashboard_port
+    bind = cfg.dashboard_bind
+    if bind not in ("127.0.0.1", "localhost") and not cfg.dashboard_token:
+        raise RuntimeError("refusing to bind the dashboard beyond localhost without DASHBOARD_TOKEN")
     api = Api(cfg, Journal(cfg.db_path))
-    httpd = HTTPServer(("127.0.0.1", port), make_handler(api))
+    httpd = HTTPServer((bind, port), make_handler(api, cfg.dashboard_token))
     if block:
         print(f"dashboard: http://127.0.0.1:{port}")
+        if bind == "0.0.0.0":
+            import socket
+            try:
+                s_ = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s_.connect(("8.8.8.8", 80))
+                ip = s_.getsockname()[0]
+                s_.close()
+            except Exception:  # noqa: BLE001
+                ip = "<your-mac-ip>"
+            tok = f"?token={cfg.dashboard_token}" if cfg.dashboard_token else ""
+            print(f"phone (same Wi-Fi): http://{ip}:{port}/{tok}")
         httpd.serve_forever()
     else:
         threading.Thread(target=httpd.serve_forever, daemon=True).start()

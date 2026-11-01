@@ -121,6 +121,11 @@ class Config:
     bt_slippage: float = field(default_factory=lambda: _f("BT_SLIPPAGE", 0.03))        # $/share per marketable side
     bt_commission: float = field(default_factory=lambda: _f("BT_COMMISSION", 0.01))    # $/share per side
 
+    # Dashboard
+    dashboard_bind: str = field(default_factory=lambda: _s("DASHBOARD_BIND", "127.0.0.1"))
+    dashboard_port: int = field(default_factory=lambda: _i("DASHBOARD_PORT", 8788))
+    dashboard_token: str = field(default_factory=lambda: _s("DASHBOARD_TOKEN", ""), repr=False)
+
     # Storage
     db_path: str = field(default_factory=lambda: _s("DB_PATH", "data/apexpm.db"))
     log_path: str = field(default_factory=lambda: _s("LOG_PATH", "logs/apexpm.log"))
@@ -138,6 +143,8 @@ class Config:
             problems.append("MAX_POS_PCT must be in (0, 0.2]")
         if self.webhook_enabled and not self.webhook_secret:
             problems.append("WEBHOOK_ENABLED requires WEBHOOK_SECRET")
+        if self.dashboard_bind not in ("127.0.0.1", "localhost") and not self.dashboard_token:
+            problems.append("DASHBOARD_BIND beyond localhost requires DASHBOARD_TOKEN")
         return problems
 
     @property
