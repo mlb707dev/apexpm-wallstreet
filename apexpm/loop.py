@@ -431,6 +431,22 @@ class Bot:
                 self.state.realized_pnl_today = self.journal.realized_pnl_today(today)
             self.log.info("trade #%d closed %s @ %.2f", t["id"], reason, exit_price)
 
+    def _maybe_daily_review(self) -> None:
+        """Once per session date, after the close, run the review (auto-suspension + report)."""
+        now_et = datetime.now(timezone.utc).astimezone(ET)
+        today = now_et.date().isoformat()
+        if now_et.weekday() >= 5 or now_et.hour < 16 or self.journal.get_state("reviewed") == today:
+            return
+        if not self.journal.q1("SELECT 1 FROM scans WHERE session_date=? LIMIT 1", (today,)):
+            return  # no session data today (holiday); nothing to review
+        try:
+            from .review import daily_review
+            report = daily_review(self, today)
+            self.journal.set_state("reviewed", today)
+            self.log.info("daily review done:\n%s", report)
+        except Exception as exc:  # noqa: BLE001
+            self.log.exception("daily review failed: %s", exc)
+
     # ---- run --------------------------------------------------------------
     def run_forever(self) -> None:
         if self.cfg.run_dashboard:
@@ -448,6 +464,7 @@ class Bot:
                     self.log.info("market closed")
                     safe(self.journal.set_state, "heartbeat", datetime.now(timezone.utc).isoformat(timespec="seconds"))
                     safe(self.journal.set_state, "market", "closed")
+                    self._maybe_daily_review()
                 if self.broker.clock_is_open():
                     safe(self.journal.set_state, "market", "open")
             except KeyboardInterrupt:
