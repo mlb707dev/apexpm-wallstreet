@@ -83,7 +83,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
 </head>
 <body>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 4</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 5</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -97,7 +97,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   <nav class="tabs" id="tabs">
     <button data-tab="overview" class="on">Overview</button><button data-tab="positions">Positions</button>
     <button data-tab="activity">Activity</button><button data-tab="analytics">Analytics</button>
-    <button data-tab="reports">Reports</button><button data-tab="settings">Settings</button>
+    <button data-tab="reports">Reports</button><button data-tab="decisions">Decisions <span id="decbadge"></span></button><button data-tab="settings">Settings</button>
   </nav>
 </header>
 <main>
@@ -144,6 +144,10 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
 <section id="analytics"><div id="ana"></div></section>
 <section id="reports"><div class="card tbl"><h3>Upcoming events <span class="ago">next 30 days</span></h3><div id="upcoming"></div></div><div id="reportlist"></div></section>
 
+<section id="decisions">
+  <div class="card"><h3>Waiting for you</h3><div id="decpending"></div></div>
+  <div class="card tbl"><h3>Resolved</h3><div id="decresolved"></div></div>
+</section>
 <section id="settings">
   <div class="card"><h3>Strategies</h3><div id="stratlist"></div></div>
   <div class="card"><h3>Connection</h3>
@@ -186,8 +190,10 @@ function renderBot(b){
   $('#botcard').innerHTML = `
     <div class="row"><span>Market</span><b>${b.market||'—'}</b></div>
     <div class="row"><span>Regime</span><b>${reg}</b></div>
-    <div class="row"><span>Strategies on</span><b style="white-space:normal;text-align:right">${(b.strategies_on||[]).join(', ')||'none'}</b></div>
-    <div class="row"><span>Live-armed strategies</span><b>${(b.live_armed||[]).join(', ')||'none'}</b></div>
+    <div class="row"><span>Live book</span><b>${(b.books&&b.books.live||[]).join(', ')||'none'}</b></div>
+    <div class="row"><span>Paper book</span><b style="white-space:normal;text-align:right">${(b.books&&b.books.paper||[]).join(', ')||'none'}</b></div>
+    <div class="row"><span>Shadow book (lab + quarantine)</span><b style="white-space:normal;text-align:right">${(b.books&&b.books.shadow||[]).join(', ')||'none'}</b></div>
+    <div class="row"><span>Decisions waiting</span><b class="${b.pending_decisions?'neg':''}">${b.pending_decisions||0}</b></div>
     <div class="row"><span>Kill switch</span><b>${b.halted?'<span class="neg">HALTED</span>':'armed · '+(b.effective.kill_dd_pct*100).toFixed(0)+'% DD'}</b></div>
     <div class="row"><span>New entries</span><b>${b.entries_paused?'<span class="neg">PAUSED</span>':'<span class="pos">open</span>'}</b></div>
     <div class="row"><span>Updated</span><b class="ago">${ago(b.heartbeat_age_sec)}</b></div>
@@ -319,7 +325,7 @@ async function loadSettings(){
     const st = s.stats;
     const stats = st ? `<div class="kv" style="margin-top:8px"><div><div class="k">Trades</div><div class="v sm">${st.trades}</div></div><div><div class="k">Win</div><div class="v sm">${Math.round(st.win_rate*100)}%</div></div><div><div class="k">Exp</div><div class="v sm ${cls(st.expectancy_r)}">${(st.expectancy_r>=0?'+':'')+fmt(st.expectancy_r)}R</div></div></div>` : '<p>No closed trades yet.</p>';
     const act = (s.status==='suspended'||s.status==='research') ? `<button class="btn ok" onclick="setStatus('${s.name}','paper')">Promote to paper</button>` : `<button class="btn warn" onclick="setStatus('${s.name}','suspended')">Suspend</button>`;
-    return `<div class="card" style="background:var(--bg3)"><h3>${s.name}<span class="chip ${s.status}">${s.status}</span></h3><p>${s.description}</p><p class="mono">mode ${s.mode} · ${s.symbols.join(', ')}</p>${stats}<div class="actions">${act}<button class="btn" onclick="setStatus('${s.name}','research')">To research</button></div></div>`;
+    return `<div class="card" style="background:var(--bg3)"><h3>${s.name}<span class="chip ${s.status}">${s.label||s.status} · ${s.book}</span></h3><p>${s.description}</p><p class="mono">mode ${s.mode} · ${s.symbols.join(', ')}</p>${stats}<div class="actions">${act}<button class="btn" onclick="setStatus('${s.name}','research')">To research</button></div></div>`;
   }).join('');
   $('#s_api').textContent = LS.api || '(this server)';
 }
@@ -330,7 +336,21 @@ async function setStatus(name, status){
   if(!r.ok) alert(r.error); loadSettings().catch(showErr);
 }
 
-const loaders = {overview: loadHome, positions: loadPositions, activity: loadActivity, analytics: loadAnalytics, reports: loadReports, settings: loadSettings};
+async function loadDecisions(){
+  const d = await api('/api/decisions');
+  $('#decbadge').textContent = d.pending.length ? '('+d.pending.length+')' : '';
+  $('#decpending').innerHTML = d.pending.length ? d.pending.map(x=>`<div class="card" style="background:var(--bg3)"><h3>${x.title}<span class="ago">${(x.ts||'').slice(0,10)}</span></h3>
+    <p>${x.detail||''}</p><p style="margin-top:6px;color:#fff">Proposal: ${x.proposal||'—'}</p>
+    <div class="actions"><button class="btn ok" onclick="resolveDecision(${x.id},'approved')">Approve</button><button class="btn" onclick="resolveDecision(${x.id},'dismissed')">Dismiss</button></div></div>`).join('')
+    : '<div class="empty">Nothing waiting. The review only escalates borderline calls.</div>';
+  $('#decresolved').innerHTML = d.resolved.length ? '<table><tr><th>When</th><th>Title</th><th>Status</th><th>Note</th></tr>' + d.resolved.map(x=>`<tr><td>${(x.resolved_at||'').slice(0,10)}</td><td style="white-space:normal">${x.title}</td><td>${x.status}</td><td style="white-space:normal">${x.note||''}</td></tr>`).join('') + '</table>' : '<div class="empty">None yet.</div>';
+}
+async function resolveDecision(id, status){
+  const note = prompt((status==='approved'?'Approve':'Dismiss')+' this. Note (recorded):'); if(note===null) return;
+  const r = await api('/api/decisions/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status,note})});
+  if(!r.ok) alert(r.error); loadDecisions().catch(showErr);
+}
+const loaders = {overview: loadHome, positions: loadPositions, activity: loadActivity, analytics: loadAnalytics, reports: loadReports, decisions: loadDecisions, settings: loadSettings};
 document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
   document.querySelectorAll('section').forEach(s=>s.classList.remove('active')); $('#'+b.dataset.tab).classList.add('active');

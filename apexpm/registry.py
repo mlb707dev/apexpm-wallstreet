@@ -16,6 +16,10 @@ from .strategies.base import Strategy
 
 STATUSES = ("research", "paper", "live", "suspended", "retired")
 ORDERING = {"research": False, "paper": True, "live": True, "suspended": False, "retired": False}
+# The three books. research and suspended both trade the shadow book (journaled, never ordered);
+# suspended is shown as "quarantine": it got there by rule, not by choice.
+BOOK = {"live": "live", "paper": "paper", "research": "shadow", "suspended": "shadow", "retired": "retired"}
+LABEL = {"research": "lab", "paper": "paper", "live": "live", "suspended": "quarantine", "retired": "retired"}
 
 
 @dataclass
@@ -27,6 +31,7 @@ class StrategyStats:
     profit_factor: float
     max_dd_r: float
     level_discipline: float   # share of exits at target/stop/max_hold that did not overhold past target
+    loss_streak: int = 0      # current consecutive losses (most recent trades)
 
 
 @dataclass
@@ -51,6 +56,10 @@ class Registry:
             CREATE TABLE IF NOT EXISTS strategy_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, name TEXT NOT NULL,
                 event TEXT NOT NULL, detail TEXT);
+            CREATE TABLE IF NOT EXISTS decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, source TEXT NOT NULL,
+                subject TEXT, title TEXT NOT NULL, detail TEXT, proposal TEXT,
+                status TEXT NOT NULL DEFAULT 'pending', resolved_at TEXT, note TEXT);
             """)
 
     # ---- registration -----------------------------------------------------
@@ -120,23 +129,64 @@ class Registry:
         gw, gl = wins.sum() if len(wins) else 0.0, -losses.sum() if len(losses) else 0.0
         cum = np.cumsum(rs)
         dd = float((np.maximum.accumulate(cum) - cum).max())
+        streak = 0
+        for r in reversed(rows):
+            if (r["pnl"] or 0) <= 0:
+                streak += 1
+            else:
+                break
         overholds = sum(1 for r in rows if r["level_reached"] is not None and r["level_targeted"]
                         and r["level_reached"] > r["level_targeted"] + 0.1 and r["exit_reason"] not in ("target", "runner_target", "trail_stop"))
         disc = 1.0 - overholds / len(rows)
         return StrategyStats(name=name, trades=len(rows), win_rate=float((rs > 0).mean()),
                              expectancy_r=float(rs.mean()),
                              profit_factor=float(gw / gl) if gl else float("inf"),
-                             max_dd_r=dd, level_discipline=disc)
+                             max_dd_r=dd, level_discipline=disc, loss_streak=streak)
+
+    def book(self, name: str) -> str:
+        return BOOK[self.status(name)]
+
+    def label(self, name: str) -> str:
+        return LABEL[self.status(name)]
+
+    # ---- decisions queue: judgment calls that are NOT obvious go to the owner ----
+    def propose(self, source: str, subject: Optional[str], title: str, detail: str = "", proposal: str = "") -> int:
+        dup = self.journal.q1("SELECT id FROM decisions WHERE status='pending' AND subject IS ? AND title=?", (subject, title))
+        if dup:
+            return int(dup["id"])
+        with self.journal.tx() as c:
+            cur = c.execute("INSERT INTO decisions (ts, source, subject, title, detail, proposal) VALUES (?,?,?,?,?,?)",
+                            (utcnow(), source, subject, title, detail, proposal))
+            return int(cur.lastrowid)
+
+    def decisions(self, status: str = "pending"):
+        return self.journal.q("SELECT * FROM decisions WHERE status=? ORDER BY id DESC", (status,))
+
+    def resolve(self, decision_id: int, status: str, note: str = "") -> None:
+        assert status in ("approved", "dismissed")
+        with self.journal.tx() as c:
+            c.execute("UPDATE decisions SET status=?, resolved_at=?, note=? WHERE id=? AND status='pending'",
+                      (status, utcnow(), note, decision_id))
+            c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (?,?,?,?)",
+                      (utcnow(), "owner", f"decision_{status}", f"#{decision_id} {note}"))
 
     def review(self) -> List[str]:
-        """Apply auto-suspension rules. Returns human-readable actions taken."""
+        """Apply the lifecycle rules. Obvious cases act automatically (quarantine);
+        borderline cases become decisions for the owner. Returns actions taken."""
         actions = []
         for name in self._entries:
             st = self.status(name)
             if st not in ("paper", "live"):
                 continue
             s = self.stats(name)
-            if s is None or s.trades < self.cfg.review_min_trades:
+            if s is None:
+                continue
+            # losing streak is checked before the minimum-trades gate: it is the fast rule
+            if s.loss_streak >= self.cfg.suspend_loss_streak:
+                self.set_status(name, "suspended", f"auto: {s.loss_streak} losses in a row")
+                actions.append(f"QUARANTINED {name}: {s.loss_streak} losses in a row")
+                continue
+            if s.trades < self.cfg.review_min_trades:
                 continue
             why = None
             if s.expectancy_r < self.cfg.suspend_expectancy_r:
@@ -149,7 +199,13 @@ class Registry:
                 why = f"level discipline {s.level_discipline:.0%} < {self.cfg.suspend_discipline:.0%}"
             if why:
                 self.set_status(name, "suspended", f"auto: {why} over last {s.trades} trades")
-                actions.append(f"SUSPENDED {name}: {why}")
+                actions.append(f"QUARANTINED {name}: {why}")
+                continue
+            # borderline: edge present but thin, or drawdown climbing → owner decides
+            if 0 <= s.expectancy_r < self.cfg.suspend_expectancy_r + 0.05 or s.max_dd_r > self.cfg.suspend_dd_r * 0.75:
+                self.propose("review", name, f"{name}: edge thin or drawdown rising",
+                             f"last {s.trades}: exp {s.expectancy_r:+.2f}R, pf {s.profit_factor:.2f}, dd {s.max_dd_r:.1f}R, "
+                             f"streak {s.loss_streak}", "Reduce size, or move to shadow for a tuning pass")
         return actions
 
     def events(self, limit: int = 50):

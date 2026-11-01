@@ -134,6 +134,8 @@ class Api:
             "regime": {s: self.j.get_state(f"regime:{s}") for s in self.cfg.symbols},
             "last_price": {s: self._last_price(s) for s in self.cfg.symbols},
             "strategies_on": [s.name for s in self.reg.active()],
+            "books": {b: [n for n in self.reg.names() if self.reg.book(n) == b] for b in ("live", "paper", "shadow")},
+            "pending_decisions": len(self.reg.decisions("pending")),
             "live_armed": [n for n in self.reg.names() if self.reg.mode_for(n) == "LIVE"],
             "profile": prof,
             "effective": {"max_pos_pct": eff.max_pos_pct, "max_trades_per_day": eff.max_trades_per_day,
@@ -177,6 +179,16 @@ class Api:
                 "upcoming": cal.upcoming(self.j, today, 30, self.cfg.symbols),
                 "policy": {k: {"label": v["label"], "size_mult": v["size_mult"], "no_entry": v["no_entry"]} for k, v in cal.POLICY.items()}}
 
+    def decisions(self) -> Dict[str, Any]:
+        return {"pending": [dict(r) for r in self.reg.decisions("pending")],
+                "resolved": [dict(r) for r in self.reg.decisions("approved")][:20] + [dict(r) for r in self.reg.decisions("dismissed")][:20]}
+
+    def resolve_decision(self, decision_id: int, status: str, note: str) -> Dict[str, Any]:
+        if status not in ("approved", "dismissed"):
+            return {"ok": False, "error": "bad_status"}
+        self.reg.resolve(int(decision_id), status, f"dashboard: {note}" if note else "dashboard")
+        return {"ok": True}
+
     def set_paused(self, paused: bool, note: str) -> Dict[str, Any]:
         profiles.set_entries_paused(self.j, paused, f"dashboard: {note}" if note else "dashboard")
         return {"ok": True, "entries_paused": paused}
@@ -208,6 +220,7 @@ class Api:
             st = self.reg.stats(n)
             e = self.reg._entries[n]
             out.append({"name": n, "description": e.strategy.description, "status": self.reg.status(n),
+                        "book": self.reg.book(n), "label": self.reg.label(n),
                         "mode": self.reg.mode_for(n), "symbols": e.symbols, "stats": st.__dict__ if st else None})
         return out
 
@@ -363,6 +376,7 @@ def make_handler(api: Api, token: str = ""):
                 "/api/trades": api.trades, "/api/strategies": api.strategies, "/api/analytics": api.analytics,
                 "/api/rejections": api.rejections, "/api/events": api.events, "/api/reports": api.reports,
                 "/api/plan": api.plan, "/api/settings": api.settings, "/api/calendar": api.calendar,
+                "/api/decisions": api.decisions,
             }
             if path in routes:
                 try:
@@ -386,6 +400,8 @@ def make_handler(api: Api, token: str = ""):
                 return self._json(api.set_status(str(body.get("name", "")), str(body.get("status", "")), str(body.get("note", ""))))
             if path == "/api/settings/profile":
                 return self._json(api.set_profile(str(body.get("profile", "")), str(body.get("note", ""))))
+            if path == "/api/decisions/resolve":
+                return self._json(api.resolve_decision(int(body.get("id", 0)), str(body.get("status", "")), str(body.get("note", ""))))
             if path == "/api/settings/pause":
                 return self._json(api.set_paused(bool(body.get("paused")), str(body.get("note", ""))))
             return self._json({"ok": False, "error": "not_found"}, 404)

@@ -106,6 +106,7 @@ class Config:
     suspend_profit_factor: float = field(default_factory=lambda: _f("SUSPEND_PROFIT_FACTOR", 1.0))
     suspend_dd_r: float = field(default_factory=lambda: _f("SUSPEND_DD_R", 6.0))
     suspend_discipline: float = field(default_factory=lambda: _f("SUSPEND_DISCIPLINE", 0.70))
+    suspend_loss_streak: int = field(default_factory=lambda: _i("SUSPEND_LOSS_STREAK", 6))
 
     # Webhook
     webhook_enabled: bool = field(default_factory=lambda: _b("WEBHOOK_ENABLED", False))
