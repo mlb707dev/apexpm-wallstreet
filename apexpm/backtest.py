@@ -160,6 +160,16 @@ class Backtester:
 
         ltf_et = ltf.index.tz_convert(ET)
         session_of = pd.Series([t.date() for t in ltf_et], index=ltf.index)
+        slot_avg = None
+        if "volume" in ltf:
+            # per-slot average over the prior 10 sessions, computed with a shift so it never includes the current session
+            slots = pd.DataFrame({"vol": ltf["volume"].values, "slot": list(zip(ltf_et.hour, ltf_et.minute)),
+                                  "date": session_of.values}, index=ltf.index)
+            daily_slot = slots.pivot_table(index="date", columns="slot", values="vol", aggfunc="sum").sort_index()
+            rolling = daily_slot.shift(1).rolling(10, min_periods=3).mean()
+            slot_lookup = rolling.to_dict("index")   # date -> {slot: avg}
+        else:
+            slot_lookup = None
 
         trades: List[BtTrade] = []
         rejections: Dict[str, int] = {}
@@ -187,6 +197,7 @@ class Backtester:
             last_stop: Dict[str, Optional[datetime]] = {"long": None, "short": None}
             bars = ltf.loc[idx]
             pending = None
+            slot_avg = slot_lookup.get(day) if slot_lookup else None
 
             for pos_i, (ts, bar) in enumerate(bars.iterrows()):
                 ts_et = ts.tz_convert(ET)
@@ -237,7 +248,8 @@ class Backtester:
                 elif open_trade is not None:
                     t = open_trade
                     sign = 1 if t.direction == "long" else -1
-                    e_now = ltf_ema.loc[ts]
+                    gi_now = ltf.index.get_loc(ts)
+                    e_now = ltf_ema.iloc[gi_now - 1] if gi_now > 0 else ltf_ema.iloc[gi_now]   # prior completed bar only
                     momentum = (float(e_now["fast"]) > float(e_now["mid"])) if sign == 1 else (float(e_now["fast"]) < float(e_now["mid"]))
                     reason, px, _ = exit_update(t.plan, hi, lo, momentum, cfg)
                     t.stop, t.target = t.plan.stop, t.plan.target
@@ -287,7 +299,8 @@ class Backtester:
                     pe2 = ltf_ema.iloc[gi - 2]
                     prev2_rl = Ribbon(float(pe2["fast"]), float(pe2["mid"]), float(pe2["slow"]))
                     prev2_close = float(ltf["close"].iloc[gi - 2])
-                vol_avg = float(ltf["volume"].iloc[max(0, gi - 20):gi].mean()) if "volume" in ltf and gi > 0 else 0.0
+                # relative volume: same time-of-day slot averaged over the prior sessions (not the last 20 bars)
+                vol_avg = float(slot_avg.get((ts_et.hour, ts_et.minute), 0.0)) if slot_avg is not None else 0.0
                 snap = MarketSnapshot(symbol=self.symbol, price=close, levels=levels,
                                       ribbon_ltf=rl, ribbon_htf=rh, ltf_closes=[],
                                       regime="trend_up" if rh.state == "bull" else "trend_down" if rh.state == "bear" else "chop",

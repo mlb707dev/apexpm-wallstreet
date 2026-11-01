@@ -257,6 +257,7 @@ class Bot:
             self.log.warning("forced DRY_RUN for today: %s", dl)
 
         self._poll_pending(now_utc)
+        self._track_vix(now_utc)
 
         taken: List[Signal] = []
         for symbol in self.cfg.symbols:
@@ -265,6 +266,29 @@ class Bot:
             except Exception as exc:  # noqa: BLE001
                 self.log.exception("%s scan failed: %s", symbol, exc)
         return taken
+
+    _vix_at: Optional[datetime] = None
+
+    def _track_vix(self, now_utc: datetime) -> None:
+        """VIX for direction/regime context (not tradable on Alpaca). Refreshed every 5 minutes via yfinance;
+        failures are logged once and never block the scan."""
+        if not self.cfg.track_vix:
+            return
+        if self._vix_at and (now_utc - self._vix_at).total_seconds() < 300:
+            return
+        self._vix_at = now_utc
+        try:
+            import yfinance as yf
+            h = yf.Ticker("^VIX").history(period="2d", interval="5m")
+            if h is None or h.empty:
+                return
+            last = float(h["close"].iloc[-1]) if "close" in h else float(h["Close"].iloc[-1])
+            closes = h["Close"] if "Close" in h else h["close"]
+            prev_day_close = float(closes.iloc[0])
+            safe(self.journal.set_state, "vix", json.dumps({"last": round(last, 2), "chg": round(last - prev_day_close, 2),
+                                                           "ts": now_utc.isoformat(timespec="seconds")}))
+        except Exception as exc:  # noqa: BLE001
+            self.log.warning("vix fetch failed: %s", exc)
 
     def _scan_symbol(self, symbol: str, today: str, now_utc: datetime, now_et: datetime) -> List[Signal]:
         assert self.state is not None

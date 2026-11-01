@@ -78,6 +78,12 @@ def update(plan: ExitPlan, hi: float, lo: float, momentum: bool, cfg) -> Tuple[O
                     plan.stop = new_stop
                 plan.target = nxt
                 plan.runner = True
+                # conservative: the same bar may already have traded through the new stop
+                if (worst - plan.stop) * s <= 0:
+                    return "trail_stop", plan.stop, True
                 return None, None, True
         return ("runner_target" if plan.runner else "target"), plan.target, changed
+    # breakeven ratchet re-test on the same bar (conservative)
+    if changed and (worst - plan.stop) * s <= 0:
+        return "breakeven_stop", plan.stop, True
     return None, None, changed

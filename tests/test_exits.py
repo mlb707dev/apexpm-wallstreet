@@ -27,9 +27,9 @@ def test_target_without_momentum_takes_profit():
 
 def test_runner_trails_up_the_levels():
     p = plan()
-    r, px, changed = update(p, hi=104.2, lo=103.0, momentum=True, cfg=C)
+    r, px, changed = update(p, hi=104.2, lo=103.7, momentum=True, cfg=C)
     assert r is None and p.runner and p.target == 106.0 and p.stop == 104.0 - 0.4
-    r, px, _ = update(p, hi=106.5, lo=105.0, momentum=True, cfg=C)
+    r, px, _ = update(p, hi=106.5, lo=105.7, momentum=True, cfg=C)
     assert r is None and p.target == 108.0 and p.stop == 106.0 - 0.4
     r, px, _ = update(p, hi=106.0, lo=105.5, momentum=True, cfg=C)
     assert r == "trail_stop" and px == 105.6
@@ -49,5 +49,12 @@ def test_stop_checked_before_target_same_bar():
 
 def test_short_mirror():
     p = ExitPlan("short", 100.0, 102.0, 102.0, 96.0, 4.0, [98.0, 96.0, 94.0])
-    r, px, _ = update(p, hi=97.0, lo=95.8, momentum=True, cfg=C)
+    r, px, _ = update(p, hi=96.3, lo=95.8, momentum=True, cfg=C)
     assert r is None and p.runner and p.target == 94.0 and p.stop == 96.4
+
+
+def test_same_bar_through_ratcheted_stop_is_a_stop():
+    p = plan()
+    # target touched (runner would start at stop 103.6) but the bar also printed 103.0 → conservative stop
+    r, px, _ = update(p, hi=104.2, lo=103.0, momentum=True, cfg=C)
+    assert r == "trail_stop" and px == 104.0 - 0.4

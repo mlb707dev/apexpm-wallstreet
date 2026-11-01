@@ -97,6 +97,9 @@ class OptionsBacktester:
             if 0 <= j < len(strikes):
                 nearest = strikes[j]
         row = sub[sub["strike"] == nearest].iloc[0]
+        step = min(np.diff(strikes)) if len(strikes) > 1 else 1.0
+        if self.strike_mode == "atm" and abs(nearest - entry_price) > step:   # entry is off the downloaded chain
+            return None
         return row["symbol"]
 
     def price_trade(self, t) -> Optional[OptTrade]:
@@ -167,8 +170,9 @@ def summarize(trades: List[OptTrade], start_equity: float = 500.0, risk_pct: flo
     curve = []
     for t in trades:
         n = int((eq * risk_pct) // t.risk) if t.risk else 0
-        n = max(n, 1)
-        if t.entry_prem * 100 * n > eq * max_premium_pct:
+        if n < 1 and risk_pct >= 0.25:        # hyper-style band: allow one contract if the premium fits
+            n = 1
+        if n >= 1 and t.entry_prem * 100 * n > eq * max_premium_pct:
             n = int(eq * max_premium_pct // (t.entry_prem * 100))
         if n < 1:
             skipped += 1

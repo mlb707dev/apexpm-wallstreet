@@ -157,6 +157,7 @@ class Api:
             "day": self._day(),
             "alerts": self._alerts(),
             "volume": self.volume(),
+            "vix": json.loads(self.j.get_state("vix") or "null"),
         }
 
     def _alerts(self) -> list:

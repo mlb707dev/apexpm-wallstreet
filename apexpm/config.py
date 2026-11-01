@@ -57,7 +57,8 @@ class Config:
     dry_run: bool = field(default_factory=lambda: _b("DRY_RUN", True))
 
     # Universe and session
-    symbols: List[str] = field(default_factory=lambda: _list("SYMBOLS", ["SPY"]))
+    symbols: List[str] = field(default_factory=lambda: _list("SYMBOLS", ["SPY", "QQQ"]))
+    track_vix: bool = field(default_factory=lambda: _b("TRACK_VIX", True))
     scan_interval_sec: int = field(default_factory=lambda: _i("SCAN_INTERVAL_SEC", 15))
     stream_enabled: bool = field(default_factory=lambda: _b("STREAM_ENABLED", True))
     data_feed: str = field(default_factory=lambda: _s("DATA_FEED", "iex"))   # iex (free) | sip (paid)

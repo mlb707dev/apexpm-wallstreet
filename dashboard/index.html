@@ -99,7 +99,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 11</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 13</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -113,7 +113,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   <nav class="tabs" id="tabs">
     <button data-tab="overview" class="on">Overview</button><button data-tab="positions">Positions</button>
     <button data-tab="activity">Activity</button><button data-tab="analytics">Analytics</button>
-    <button data-tab="reports">Reports</button><button data-tab="decisions">Decisions <span id="decbadge"></span></button><button data-tab="settings">Settings</button>
+    <button data-tab="reports">Reports</button><button data-tab="decisions">Strategies <span id="decbadge"></span></button><button data-tab="settings">Settings</button>
   </nav>
 </header>
 <div id="alerts"></div>
@@ -134,6 +134,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
         <div><div class="k">Cash</div><div class="v sm" id="t_cash">—</div></div>
         <div><div class="k">Trades today</div><div class="v" id="t_trades">—</div></div>
         <div><div class="k">Pending orders</div><div class="v" id="t_pending">—</div></div>
+        <div><div class="k">VIX</div><div class="v sm" id="t_vix">—</div></div>
         <div><div class="k">Day ATR</div><div class="v sm" id="t_atr">—</div></div>
         <div><div class="k">Vol vs 5d avg</div><div class="v sm" id="t_vol5">—</div></div>
         <div><div class="k">Vol vs 30d avg</div><div class="v sm" id="t_vol30">—</div></div>
@@ -163,11 +164,11 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
 <section id="reports"><div class="card tbl"><h3>Upcoming events <span class="ago">next 30 days</span></h3><div id="upcoming"></div></div><div id="reportlist"></div></section>
 
 <section id="decisions">
-  <div class="card"><h3>Waiting for you</h3><div id="decpending"></div></div>
-  <div class="card tbl"><h3>Resolved</h3><div id="decresolved"></div></div>
+  <div class="card" id="deccard"><h3>Needs your call <span class="ago">borderline cases the review will not decide alone</span></h3><div id="decpending"></div></div>
+  <div class="card"><h3>Strategies <span class="ago">live · paper · shadow (lab + quarantine)</span></h3><div id="stratlist"></div></div>
+  <div class="card tbl"><h3>Your past calls</h3><div id="decresolved"></div></div>
 </section>
 <section id="settings">
-  <div class="card"><h3>Strategies</h3><div id="stratlist"></div></div>
   <div class="card"><h3>Connection</h3>
     <p>API address: <span class="mono" id="s_api">(this server)</span></p>
     <div class="actions"><button class="btn" onclick="logout()">Sign out</button></div></div>
@@ -234,6 +235,7 @@ function renderBot(b){
     const pol = 'size ×'+a.policy.size_mult + (a.policy.no_entry.length ? ' · no entries '+a.policy.no_entry.map(w=>w[0]+'–'+w[1]).join(', ') : '');
     return `<div class="alert ${a.severity}${a.flash?' flash':''}"><span>${a.big?'⚠ ':''}${a.label}${a.symbol?' ('+a.symbol+')':''} · ${a.date}</span><b>${when} · ${pol}</b></div>`;
   }).join('');
+  if (b.vix) { $('#t_vix').textContent = fmt(b.vix.last,2) + ' (' + (b.vix.chg>=0?'+':'') + fmt(b.vix.chg,2) + ')'; $('#t_vix').className = 'v sm ' + (b.vix.chg>0?'neg':'pos'); }
   const v = (b.volume||{})[Object.keys(b.volume||{})[0]] || {};
   $('#t_vol5').textContent = v.vs_avg5==null ? '—' : Math.round(v.vs_avg5*100)+'%';
   $('#t_vol30').textContent = v.vs_avg30==null ? '—' : Math.round(v.vs_avg30*100)+'%';
@@ -367,7 +369,7 @@ async function loadReports(){
     : '<div class="card"><div class="empty">No daily reports yet. The bot writes one after each session\'s review.</div></div>';
 }
 
-async function loadSettings(){
+async function loadStrategies(){
   const ss = await api('/api/strategies');
   $('#stratlist').innerHTML = ss.map(s=>{
     const st = s.stats;
@@ -375,22 +377,25 @@ async function loadSettings(){
     const act = (s.status==='suspended'||s.status==='research') ? `<button class="btn ok" onclick="setStatus('${s.name}','paper')">Promote to paper</button>` : `<button class="btn warn" onclick="setStatus('${s.name}','suspended')">Suspend</button>`;
     return `<div class="card" style="background:var(--bg3)"><h3>${s.name}<span class="chip ${s.status}">${s.label||s.status} · ${s.book}</span></h3><p>${s.description}</p><p class="mono">mode ${s.mode} · ${s.symbols.join(', ')}</p>${stats}<div class="actions">${act}<button class="btn" onclick="setStatus('${s.name}','research')">To research</button></div></div>`;
   }).join('');
+}
+async function loadSettings(){
   $('#s_api').textContent = LS.api || '(this server)';
 }
 async function setStatus(name, status){
   const note = await ask((status==='paper'?'Promote ':status==='suspended'?'Quarantine ':'Move to lab: ')+name, status==='paper'?'Paper book: real paper orders from the next scan.':status==='suspended'?'Shadow book: journaled, no orders.':'Shadow book for tuning.');
   if(note===null) return;
   const r = await api('/api/strategy/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,status,note:note||''})});
-  if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadSettings().catch(showErr); loadHome().catch(()=>{});
+  if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadStrategies().catch(showErr); loadHome().catch(()=>{});
 }
 
 async function loadDecisions(){
+  await loadStrategies();
   const d = await api('/api/decisions');
   $('#decbadge').textContent = d.pending.length ? '('+d.pending.length+')' : '';
   $('#decpending').innerHTML = d.pending.length ? d.pending.map(x=>`<div class="card" style="background:var(--bg3)"><h3>${x.title}<span class="ago">${(x.ts||'').slice(0,10)}</span></h3>
     <p>${x.detail||''}</p><p style="margin-top:6px;color:#fff">Proposal: ${x.proposal||'—'}</p>
     <div class="actions"><button class="btn ok" onclick="resolveDecision(${x.id},'approved')">Approve</button><button class="btn" onclick="resolveDecision(${x.id},'dismissed')">Dismiss</button></div></div>`).join('')
-    : '<div class="empty">Nothing waiting. The review only escalates borderline calls.</div>';
+    : '<div class="empty">Nothing waiting. The nightly review quarantines losers on its own and only brings you borderline calls.</div>';
   $('#decresolved').innerHTML = d.resolved.length ? '<table><tr><th>When</th><th>Title</th><th>Status</th><th>Note</th></tr>' + d.resolved.map(x=>`<tr><td>${(x.resolved_at||'').slice(0,10)}</td><td style="white-space:normal">${x.title}</td><td>${x.status}</td><td style="white-space:normal">${x.note||''}</td></tr>`).join('') + '</table>' : '<div class="empty">None yet.</div>';
 }
 async function resolveDecision(id, status){
