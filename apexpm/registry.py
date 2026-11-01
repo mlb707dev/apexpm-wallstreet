@@ -1,0 +1,156 @@
+"""Strategy registry: status, feature flags, rolling stats and auto-suspension.
+
+Status lives in the journal's `strategy_status` table so it survives restarts
+and so a human can override it. Code declares the default status; the table
+wins once a row exists. Nothing un-suspends itself.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Dict, List, Optional
+
+import numpy as np
+
+from .db import Journal, utcnow
+from .strategies.base import Strategy
+
+STATUSES = ("research", "paper", "live", "suspended", "retired")
+ORDERING = {"research": False, "paper": True, "live": True, "suspended": False, "retired": False}
+
+
+@dataclass
+class StrategyStats:
+    name: str
+    trades: int
+    win_rate: float
+    expectancy_r: float
+    profit_factor: float
+    max_dd_r: float
+    level_discipline: float   # share of exits at target/stop/max_hold that did not overhold past target
+
+
+@dataclass
+class Entry:
+    strategy: Strategy
+    default_status: str
+    symbols: List[str]
+
+
+class Registry:
+    def __init__(self, journal: Journal, cfg):
+        self.journal = journal
+        self.cfg = cfg
+        self._entries: Dict[str, Entry] = {}
+        self._ensure_tables()
+
+    def _ensure_tables(self) -> None:
+        with self.journal.tx() as c:
+            c.executescript("""
+            CREATE TABLE IF NOT EXISTS strategy_status (
+                name TEXT PRIMARY KEY, status TEXT NOT NULL, updated_at TEXT NOT NULL, note TEXT);
+            CREATE TABLE IF NOT EXISTS strategy_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, name TEXT NOT NULL,
+                event TEXT NOT NULL, detail TEXT);
+            """)
+
+    # ---- registration -----------------------------------------------------
+    def register(self, strategy: Strategy, default_status: str = "research",
+                 symbols: Optional[List[str]] = None) -> None:
+        assert default_status in STATUSES
+        self._entries[strategy.name] = Entry(strategy, default_status, symbols or list(self.cfg.symbols))
+        row = self.journal.q1("SELECT status FROM strategy_status WHERE name=?", (strategy.name,))
+        if row is None:
+            self.set_status(strategy.name, default_status, "registered with default status")
+
+    def names(self) -> List[str]:
+        return list(self._entries)
+
+    def status(self, name: str) -> str:
+        row = self.journal.q1("SELECT status FROM strategy_status WHERE name=?", (name,))
+        return row[0] if row else self._entries[name].default_status
+
+    def set_status(self, name: str, status: str, note: str = "") -> None:
+        assert status in STATUSES
+        with self.journal.tx() as c:
+            c.execute("INSERT OR REPLACE INTO strategy_status (name, status, updated_at, note) VALUES (?,?,?,?)",
+                      (name, status, utcnow(), note))
+            c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (?,?,?,?)",
+                      (utcnow(), name, f"status:{status}", note))
+
+    def active(self, symbol: Optional[str] = None) -> List[Strategy]:
+        """Strategies allowed to produce signals that may become orders."""
+        out = []
+        for name, e in self._entries.items():
+            if not ORDERING[self.status(name)]:
+                continue
+            if symbol and symbol not in e.symbols:
+                continue
+            out.append(e.strategy)
+        return out
+
+    def observing(self, symbol: Optional[str] = None) -> List[Strategy]:
+        """Research strategies: evaluated and journaled (DRY_RUN rows) but never ordered."""
+        out = []
+        for name, e in self._entries.items():
+            if self.status(name) != "research":
+                continue
+            if symbol and symbol not in e.symbols:
+                continue
+            out.append(e.strategy)
+        return out
+
+    def mode_for(self, name: str) -> str:
+        """Effective order mode for a strategy given global config."""
+        st = self.status(name)
+        if st == "live" and not self.cfg.paper and not self.cfg.dry_run:
+            return "LIVE"
+        if st in ("paper", "live") and not self.cfg.dry_run:
+            return "PAPER"
+        return "DRY_RUN"
+
+    # ---- stats and the learning loop ------------------------------------
+    def stats(self, name: str, window: Optional[int] = None) -> Optional[StrategyStats]:
+        window = window or self.cfg.review_window_trades
+        rows = self.journal.closed_trades(name)[-window:]
+        rows = [r for r in rows if r["pnl"] is not None and r["rr_realized"] is not None]
+        if not rows:
+            return None
+        rs = np.array([r["rr_realized"] for r in rows], dtype=float)
+        wins, losses = rs[rs > 0], rs[rs <= 0]
+        gw, gl = wins.sum() if len(wins) else 0.0, -losses.sum() if len(losses) else 0.0
+        cum = np.cumsum(rs)
+        dd = float((np.maximum.accumulate(cum) - cum).max())
+        overholds = sum(1 for r in rows if r["level_reached"] is not None and r["level_targeted"]
+                        and r["level_reached"] > r["level_targeted"] + 0.1 and r["exit_reason"] != "target")
+        disc = 1.0 - overholds / len(rows)
+        return StrategyStats(name=name, trades=len(rows), win_rate=float((rs > 0).mean()),
+                             expectancy_r=float(rs.mean()),
+                             profit_factor=float(gw / gl) if gl else float("inf"),
+                             max_dd_r=dd, level_discipline=disc)
+
+    def review(self) -> List[str]:
+        """Apply auto-suspension rules. Returns human-readable actions taken."""
+        actions = []
+        for name in self._entries:
+            st = self.status(name)
+            if st not in ("paper", "live"):
+                continue
+            s = self.stats(name)
+            if s is None or s.trades < self.cfg.review_min_trades:
+                continue
+            why = None
+            if s.expectancy_r < self.cfg.suspend_expectancy_r:
+                why = f"expectancy {s.expectancy_r:.2f}R < {self.cfg.suspend_expectancy_r}"
+            elif s.profit_factor < self.cfg.suspend_profit_factor:
+                why = f"profit factor {s.profit_factor:.2f} < {self.cfg.suspend_profit_factor}"
+            elif s.max_dd_r > self.cfg.suspend_dd_r:
+                why = f"drawdown {s.max_dd_r:.1f}R > {self.cfg.suspend_dd_r}"
+            elif s.level_discipline < self.cfg.suspend_discipline:
+                why = f"level discipline {s.level_discipline:.0%} < {self.cfg.suspend_discipline:.0%}"
+            if why:
+                self.set_status(name, "suspended", f"auto: {why} over last {s.trades} trades")
+                actions.append(f"SUSPENDED {name}: {why}")
+        return actions
+
+    def events(self, limit: int = 50):
+        return self.journal.q("SELECT * FROM strategy_events ORDER BY id DESC LIMIT ?", (limit,))

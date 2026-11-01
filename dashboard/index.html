@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050510">
+<title>ApexPM Wallstreet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=JetBrains+Mono:wght@500;700&family=Orbitron:wght@600;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#050510;--bg2:#0d0d1a;--bg3:#12122a;--line:#1c1c3a;--text:#c8d4f0;--dim:#6b7299;
+--sky:#38bdf8;--purple:#a855f7;--pink:#ec4899;--orange:#f97316;--red:#ff2d55;--amber:#ffaa00;--green:#22c55e;}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--text);font-family:'DM Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{padding:0 0 calc(72px + env(safe-area-inset-bottom))}
+.mono{font-family:'JetBrains Mono',monospace}
+header{position:sticky;top:0;z-index:5;background:linear-gradient(180deg,var(--bg) 70%,transparent);padding:calc(12px + env(safe-area-inset-top)) 16px 10px;display:flex;align-items:center;justify-content:space-between}
+header h1{font-family:'Orbitron',sans-serif;font-weight:800;font-size:15px;letter-spacing:.14em;color:#fff}
+header h1 span{color:var(--sky)}
+.badge{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.08em;padding:4px 8px;border-radius:6px;border:1px solid var(--line);color:var(--dim)}
+.badge.dry{color:var(--amber);border-color:#3a2d00}.badge.paper{color:var(--sky);border-color:#0b3a52}.badge.live{color:var(--red);border-color:#4a0f1f}
+main{padding:0 16px;max-width:860px;margin:0 auto}
+section{display:none}section.active{display:block}
+h2{font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:.16em;color:var(--dim);margin:18px 0 10px;text-transform:uppercase}
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+@media(min-width:640px){.tiles{grid-template-columns:repeat(4,1fr)}}
+.tile{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.tile .k{font-size:10px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
+.tile .v{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;margin-top:4px;color:#fff}
+.tile .v.pos{color:var(--green)}.tile .v.neg{color:var(--red)}
+.card{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+.card h3{font-size:13px;font-weight:700;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.card p{font-size:12px;color:var(--dim);margin-top:4px}
+.chip{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.06em;padding:3px 7px;border-radius:6px;text-transform:uppercase}
+.chip.paper{background:#0b3a52;color:var(--sky)}.chip.research{background:#2a1d4a;color:var(--purple)}.chip.suspended{background:#4a0f1f;color:var(--red)}.chip.retired{background:#222;color:var(--dim)}.chip.live{background:#143d1f;color:var(--green)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}
+.stats div{background:var(--bg3);border-radius:8px;padding:6px 8px}
+.stats .k{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+.stats .v{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:#fff}
+.actions{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+button{font-family:'DM Sans',sans-serif;font-weight:600;font-size:12px;border-radius:8px;border:1px solid var(--line);background:var(--bg3);color:var(--text);padding:8px 10px}
+button.warn{border-color:#4a0f1f;color:var(--red)}button.ok{border-color:#0b3a52;color:var(--sky)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+td{padding:7px 4px;border-bottom:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap}
+.tbl{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.pos{color:var(--green)}.neg{color:var(--red)}
+.levels{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.lv{display:flex;justify-content:space-between;background:var(--bg3);border-radius:8px;padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:12px}
+.lv.up{border-left:3px solid var(--green)}.lv.dn{border-left:3px solid var(--red)}.lv.anchor{grid-column:1/-1;border-left:3px solid var(--sky)}
+pre{white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);line-height:1.5}
+.empty{color:var(--dim);font-size:12px;padding:10px 0}
+nav{position:fixed;bottom:0;left:0;right:0;background:rgba(5,5,16,.92);backdrop-filter:blur(12px);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:8px 0 calc(8px + env(safe-area-inset-bottom))}
+nav button{background:none;border:none;color:var(--dim);font-size:10px;letter-spacing:.06em;text-transform:uppercase;display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 10px}
+nav button.on{color:var(--sky)}nav button i{width:18px;height:18px;border-radius:5px;background:currentColor;opacity:.85;display:block}
+canvas{max-height:220px}
+.err{background:#2a0a14;border:1px solid #4a0f1f;color:var(--red);padding:10px;border-radius:10px;font-size:12px;margin:10px 0}
+</style>
+</head>
+<body>
+<header><h1>APEX<span>PM</span> WALLSTREET</h1><span id="mode" class="badge">…</span></header>
+<main>
+<div id="err" class="err" style="display:none"></div>
+
+<section id="home" class="active">
+  <h2>Overview</h2>
+  <div class="tiles">
+    <div class="tile"><div class="k">Realized P&L</div><div class="v" id="pnl">—</div></div>
+    <div class="tile"><div class="k">Total R</div><div class="v" id="totalr">—</div></div>
+    <div class="tile"><div class="k">Win rate</div><div class="v" id="win">—</div></div>
+    <div class="tile"><div class="k">Expectancy</div><div class="v" id="exp">—</div></div>
+    <div class="tile"><div class="k">Open trades</div><div class="v" id="open">—</div></div>
+    <div class="tile"><div class="k">Closed</div><div class="v" id="closed">—</div></div>
+    <div class="tile"><div class="k">Max DD</div><div class="v" id="dd">—</div></div>
+    <div class="tile"><div class="k">Start equity</div><div class="v" id="eq">—</div></div>
+  </div>
+  <h2>R curve</h2>
+  <div class="card"><canvas id="curve"></canvas></div>
+  <h2>Today's levels</h2>
+  <div class="card" id="plan"><div class="empty">No pre-market plan yet. Run the bot or <span class="mono">--levels</span>.</div></div>
+</section>
+
+<section id="strats">
+  <h2>Strategies</h2>
+  <div id="stratlist"></div>
+  <h2>Governance events</h2>
+  <div class="card tbl" id="events"></div>
+</section>
+
+<section id="journal">
+  <h2>Trade journal</h2>
+  <div class="card tbl" id="trades"></div>
+  <h2>Rejections (7 days)</h2>
+  <div class="card tbl" id="rej"></div>
+</section>
+
+<section id="reports">
+  <h2>Daily reports</h2>
+  <div id="reportlist"></div>
+</section>
+</main>
+
+<nav>
+  <button data-tab="home" class="on"><i></i>Home</button>
+  <button data-tab="strats"><i></i>Strategies</button>
+  <button data-tab="journal"><i></i>Journal</button>
+  <button data-tab="reports"><i></i>Reports</button>
+</nav>
+
+<script>
+const $ = s => document.querySelector(s);
+const fmt = (n, d=2) => n==null ? '—' : Number(n).toFixed(d);
+const money = n => n==null ? '—' : (n<0?'-':'') + '$' + Math.abs(n).toFixed(2);
+const cls = n => n==null ? '' : n>0 ? 'pos' : n<0 ? 'neg' : '';
+let chart;
+
+async function api(p, opts){ const r = await fetch(p, opts); if(!r.ok) throw new Error(p+' '+r.status); return r.json(); }
+function showErr(e){ const el=$('#err'); el.style.display='block'; el.textContent='Dashboard error: '+e.message; }
+
+async function loadHome(){
+  const o = await api('/api/overview');
+  const m = $('#mode'); m.textContent = o.mode; m.className = 'badge ' + (o.dry_run?'dry':o.paper?'paper':'live');
+  $('#pnl').textContent = money(o.realized_pnl); $('#pnl').className='v '+cls(o.realized_pnl);
+  $('#totalr').textContent = fmt(o.total_r); $('#totalr').className='v '+cls(o.total_r);
+  $('#win').textContent = o.win_rate==null?'—':Math.round(o.win_rate*100)+'%';
+  $('#exp').textContent = o.expectancy_r==null?'—':(o.expectancy_r>=0?'+':'')+fmt(o.expectancy_r)+'R';
+  $('#exp').className='v '+cls(o.expectancy_r);
+  $('#open').textContent = o.open; $('#closed').textContent = o.closed;
+  $('#dd').textContent = fmt(o.max_dd_r)+'R'; $('#eq').textContent = o.starting_equity? money(+o.starting_equity):'—';
+  const labels = o.curve.map((_,i)=>i+1), data = o.curve.map(p=>p.r);
+  if(chart) chart.destroy();
+  chart = new Chart($('#curve'), {type:'line', data:{labels, datasets:[{data, borderColor:'#38bdf8', backgroundColor:'rgba(56,189,248,.12)', fill:true, tension:.25, pointRadius:0, borderWidth:2}]},
+    options:{plugins:{legend:{display:false}}, scales:{x:{display:false}, y:{grid:{color:'#1c1c3a'}, ticks:{color:'#6b7299', font:{family:'JetBrains Mono', size:10}}}}, animation:false}});
+  const plan = await api('/api/plan');
+  if(plan){
+    const lv = plan.levels, ks = ['2.0','1.5','1.0','0.5'];
+    let h = `<div class="lv anchor"><span>${plan.symbol} anchor · ATR ${fmt(lv.atr)}</span><b>${fmt(lv.anchor)}</b></div>`;
+    h += '<div class="levels">';
+    ks.forEach(k=>{ h += `<div class="lv up"><span>+${k}</span><b>${fmt(lv['+'+k])}</b></div><div class="lv dn"><span>−${k}</span><b>${fmt(lv['-'+k])}</b></div>`; });
+    h += '</div>';
+    $('#plan').innerHTML = `<p style="margin-bottom:8px">${plan.date}</p>` + h;
+  }
+}
+
+async function loadStrats(){
+  const ss = await api('/api/strategies');
+  $('#stratlist').innerHTML = ss.map(s=>{
+    const st = s.stats;
+    const stats = st ? `<div class="stats">
+      <div><div class="k">Trades</div><div class="v">${st.trades}</div></div>
+      <div><div class="k">Win</div><div class="v">${Math.round(st.win_rate*100)}%</div></div>
+      <div><div class="k">Exp</div><div class="v ${cls(st.expectancy_r)}">${(st.expectancy_r>=0?'+':'')+fmt(st.expectancy_r)}R</div></div>
+      <div><div class="k">PF</div><div class="v">${st.profit_factor===Infinity||st.profit_factor==='inf'?'∞':fmt(st.profit_factor)}</div></div>
+      <div><div class="k">Max DD</div><div class="v">${fmt(st.max_dd_r,1)}R</div></div>
+      <div><div class="k">Discipline</div><div class="v">${Math.round(st.level_discipline*100)}%</div></div></div>` : '<div class="empty">No closed trades yet.</div>';
+    const act = s.status==='suspended' || s.status==='research'
+      ? `<button class="ok" onclick="setStatus('${s.name}','paper')">Promote to paper</button>`
+      : `<button class="warn" onclick="setStatus('${s.name}','suspended')">Suspend</button>`;
+    return `<div class="card"><h3>${s.name}<span class="chip ${s.status}">${s.status}</span></h3><p>${s.description}</p>
+      <p class="mono">mode ${s.mode} · ${s.symbols.join(', ')}</p>${stats}<div class="actions">${act}
+      <button onclick="setStatus('${s.name}','research')">To research</button></div></div>`;
+  }).join('');
+  const ev = await api('/api/events');
+  $('#events').innerHTML = ev.length ? '<table><tr><th>When</th><th>Strategy</th><th>Event</th><th>Detail</th></tr>' +
+    ev.map(e=>`<tr><td>${e.ts.slice(0,16).replace('T',' ')}</td><td>${e.name}</td><td>${e.event}</td><td style="white-space:normal">${e.detail||''}</td></tr>`).join('') + '</table>' : '<div class="empty">No events.</div>';
+}
+
+async function setStatus(name, status){
+  const note = status==='paper' ? prompt('Why promote '+name+'? (recorded)') : '';
+  if(status==='paper' && note===null) return;
+  const r = await api('/api/strategy/status', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, status, note: note||''})});
+  if(!r.ok) alert(r.error); loadStrats();
+}
+
+async function loadJournal(){
+  const ts = await api('/api/trades');
+  $('#trades').innerHTML = ts.length ? '<table><tr><th>#</th><th>Opened</th><th>Setup</th><th>Dir</th><th>Qty</th><th>Entry</th><th>Stop</th><th>Target</th><th>Exit</th><th>Reason</th><th>R</th><th>P&L</th><th>Mode</th></tr>' +
+    ts.map(t=>`<tr><td>${t.id}</td><td>${t.opened_at.slice(5,16).replace('T',' ')}</td><td>${t.setup}</td><td>${t.direction}</td><td>${t.qty}</td><td>${fmt(t.entry)}</td><td>${fmt(t.stop)}</td><td>${fmt(t.target)}</td><td>${fmt(t.exit_price)}</td><td>${t.exit_reason||'open'}</td><td class="${cls(t.rr_realized)}">${t.rr_realized==null?'—':fmt(t.rr_realized)}</td><td class="${cls(t.pnl)}">${t.pnl==null?'—':money(t.pnl)}</td><td>${t.mode}</td></tr>`).join('') + '</table>' : '<div class="empty">No trades journaled yet.</div>';
+  const rj = await api('/api/rejections');
+  $('#rej').innerHTML = rj.length ? '<table><tr><th>Date</th><th>Setup</th><th>Reason</th><th>N</th></tr>' +
+    rj.map(r=>`<tr><td>${r.date}</td><td>${r.setup}</td><td>${r.reason}</td><td>${r.n}</td></tr>`).join('') + '</table>' : '<div class="empty">No rejections in the last 7 days.</div>';
+}
+
+async function loadReports(){
+  const rs = await api('/api/reports');
+  $('#reportlist').innerHTML = rs.length ? rs.map(r=>`<div class="card"><h3>${r.date}<span class="chip ${ (r.realized_pnl||0)>=0?'live':'suspended'}">${money(r.realized_pnl)}</span></h3>
+    <p class="mono">trades ${r.trades} · wins ${r.wins} · overholds ${r.overholds} · rejections ${r.rejections}</p><details style="margin-top:8px"><summary style="font-size:12px;color:var(--dim)">Full report</summary><pre>${(r.notes||'').replace(/</g,'&lt;')}</pre></details></div>`).join('') : '<div class="empty">No daily reports yet. Run <span class="mono">--review</span> after the close.</div>';
+}
+
+const loaders = {home: loadHome, strats: loadStrats, journal: loadJournal, reports: loadReports};
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  document.querySelectorAll('section').forEach(s=>s.classList.remove('active')); $('#'+b.dataset.tab).classList.add('active');
+  loaders[b.dataset.tab]().catch(showErr);
+});
+loadHome().catch(showErr);
+setInterval(()=>{ const on=document.querySelector('nav button.on').dataset.tab; loaders[on]().catch(()=>{}); }, 30000);
+</script>
+</body>
+</html>
