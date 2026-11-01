@@ -146,8 +146,17 @@ class Api:
             "halted": self.j.get_state(f"halted:{et_date()}") == "1",
             "entries_paused": profiles.entries_paused(self.j),
             "day": self._day(),
+            "alerts": self._alerts(),
             "volume": self.volume(),
         }
+
+    def _alerts(self) -> list:
+        from zoneinfo import ZoneInfo
+        now_et = datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York"))
+        try:
+            return cal.alerts(self.j, now_et, self.cfg.symbols)
+        except Exception:  # noqa: BLE001
+            return []
 
     def _day(self) -> Dict[str, Any]:
         raw = self.j.get_state("day_context")

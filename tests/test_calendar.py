@@ -43,3 +43,17 @@ def test_upcoming_lists_events():
     ev = upcoming(None, date(2026, 11, 2), 30, ["SPY"])
     assert any(e["type"] == "opex" and e["date"] == "2026-11-20" for e in ev)
     assert any(e["type"] == "half_day" and e["date"] == "2026-11-27" for e in ev)
+
+
+def test_alerts_window_and_flash():
+    from datetime import datetime
+    from apexpm.calendar import alerts
+    # Thu 2026-11-19 13:00 ET: OPEX is Fri 11-20 → tomorrow, afternoon-before → flash
+    now = datetime(2026, 11, 19, 13, 0)
+    al = alerts(None, now, ["SPY"])
+    opex = [a for a in al if a["type"] == "opex"]
+    assert opex and opex[0]["severity"] == "tomorrow" and opex[0]["flash"] is True
+    # Wed 11-18 09:00: OPEX is in 2 days → soon, no flash
+    al2 = alerts(None, datetime(2026, 11, 18, 9, 0), ["SPY"])
+    o2 = [a for a in al2 if a["type"] == "opex"][0]
+    assert o2["severity"] == "soon" and o2["flash"] is False

@@ -77,13 +77,21 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
 #login h2{font-family:'Orbitron',sans-serif;font-size:13px;letter-spacing:.14em;color:#fff;margin-bottom:12px}
 #login label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
 #login button{width:100%;padding:11px;border-radius:8px;border:0;background:var(--sky);color:#031018;font-weight:700;font-family:'DM Sans',sans-serif}
+#alerts{max-width:1100px;margin:0 auto;padding:0 16px}
+.alert{border-radius:10px;padding:10px 12px;font-size:13px;margin:10px 0 0;display:flex;justify-content:space-between;gap:10px;align-items:center;border:1px solid}
+.alert.today{background:#3a0f1a;border-color:#7a1f36;color:#ffd1dc}
+.alert.tomorrow{background:#3a2a08;border-color:#7a5a10;color:#ffe6a8}
+.alert.soon{background:#14213a;border-color:#2a4a7a;color:#cfe0ff}
+.alert.flash{animation:flash 1.2s ease-in-out infinite}
+@keyframes flash{0%,100%{box-shadow:0 0 0 0 rgba(255,170,0,0)}50%{box-shadow:0 0 0 4px rgba(255,170,0,.45)}}
+.alert b{font-family:'JetBrains Mono',monospace;white-space:nowrap}
 .err{background:#2a0a14;border:1px solid #4a0f1f;color:var(--red);padding:10px;border-radius:10px;font-size:12px;margin:10px 0}
 .ago{color:var(--dim);font-size:11px}
 </style>
 </head>
 <body>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 5</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 6</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -100,6 +108,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
     <button data-tab="reports">Reports</button><button data-tab="decisions">Decisions <span id="decbadge"></span></button><button data-tab="settings">Settings</button>
   </nav>
 </header>
+<div id="alerts"></div>
 <main>
 <div id="err" class="err" style="display:none"></div>
 
@@ -201,6 +210,12 @@ function renderBot(b){
       ? '<button class="btn ok" onclick="setPause(false)">Resume entries</button>'
       : '<button class="btn warn" onclick="setPause(true)">Pause entries now</button>'}
       <button class="btn" onclick="setProfile(\'conservative\')">Tighten (conservative)</button></div>`;
+  const al = b.alerts || [];
+  $('#alerts').innerHTML = al.map(a=>{
+    const when = a.days===0 ? 'TODAY' : a.days===1 ? 'TOMORROW' : 'in '+a.days+' days';
+    const pol = 'size ×'+a.policy.size_mult + (a.policy.no_entry.length ? ' · no entries '+a.policy.no_entry.map(w=>w[0]+'–'+w[1]).join(', ') : '');
+    return `<div class="alert ${a.severity}${a.flash?' flash':''}"><span>${a.big?'⚠ ':''}${a.label}${a.symbol?' ('+a.symbol+')':''} · ${a.date}</span><b>${when} · ${pol}</b></div>`;
+  }).join('');
   const v = (b.volume||{})[Object.keys(b.volume||{})[0]] || {};
   $('#t_vol5').textContent = v.vs_avg5==null ? '—' : Math.round(v.vs_avg5*100)+'%';
   $('#t_vol30').textContent = v.vs_avg30==null ? '—' : Math.round(v.vs_avg30*100)+'%';

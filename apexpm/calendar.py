@@ -158,3 +158,29 @@ def ensure_table(journal) -> None:
         c.executescript("""CREATE TABLE IF NOT EXISTS calendar_events (
             kind TEXT NOT NULL, symbol TEXT, date TEXT NOT NULL, timing TEXT, source TEXT, fetched_at TEXT,
             PRIMARY KEY (kind, symbol, date))""")
+
+
+BIG = ("fomc", "quad_witching", "opex", "cpi", "nfp")
+
+
+def alerts(journal, now_et, traded: List[str], horizon_days: int = 2) -> List[Dict]:
+    """Events today and within the next `horizon_days` trading days, with urgency.
+    severity: 'today' | 'tomorrow' | 'soon'. flash=True from noon the day before OPEX/witching."""
+    out = []
+    d0 = now_et.date()
+    checked = 0
+    d = d0
+    while checked <= horizon_days:
+        if d.weekday() < 5:
+            ctx = day_context(d, traded, journal)
+            for e in ctx.events:
+                days = (d - d0).days
+                sev = "today" if days == 0 else "tomorrow" if days == 1 else "soon"
+                flash = e["type"] in ("opex", "quad_witching", "fomc") and days == 1 and now_et.hour >= 12
+                out.append({"date": d.isoformat(), "days": days, "type": e["type"], "label": e["label"],
+                            "symbol": e.get("symbol"), "severity": sev, "flash": flash, "big": e["type"] in BIG,
+                            "policy": POLICY[e["type"]]})
+            checked += 1
+        d += timedelta(days=1)
+    out.sort(key=lambda a: (a["days"], not a["big"]))
+    return out
