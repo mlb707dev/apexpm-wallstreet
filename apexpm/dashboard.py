@@ -464,7 +464,8 @@ def make_handler(api: Api, token: str = ""):
             if path.startswith("/icons/"):
                 return self._static(path.lstrip("/"), cache="public, max-age=86400")
             if path == "/api/health":
-                return self._json({"ok": True})
+                import os as _os
+                return self._json({"ok": True, "commit": (_os.environ.get("RENDER_GIT_COMMIT") or "")[:7] or None})
             if not self._authed():
                 if path.startswith("/api/"):
                     return self._json({"error": "unauthorized"}, 401)
