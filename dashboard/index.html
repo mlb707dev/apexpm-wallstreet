@@ -99,7 +99,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 16</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 17</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -162,7 +162,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
 </section>
 
 <section id="analytics"><div id="ana"></div></section>
-<section id="reports"><div class="card tbl"><h3>Upcoming events <span class="ago">next 30 days</span></h3><div id="upcoming"></div></div><div id="reportlist"></div></section>
+<section id="reports"><div class="card tbl"><h3>Upcoming events <span class="ago">next 30 days</span></h3><div id="upcoming"></div></div><div id="weeklylist"></div><div id="reportlist"></div></section>
 
 <section id="decisions">
   <div class="card" id="deccard"><h3>Needs your call <span class="ago">borderline cases the review will not decide alone</span></h3><div id="decpending"></div></div>
@@ -292,7 +292,7 @@ async function loadHome(){
     <div class="row"><span>Closed trades</span><b>${o.all_time.closed} · win ${o.all_time.win_rate==null?'—':Math.round(o.all_time.win_rate*100)+'%'}</b></div>
     <div class="row"><span>Expectancy</span><b class="${cls(o.all_time.expectancy_r)}">${o.all_time.expectancy_r==null?'—':(o.all_time.expectancy_r>=0?'+':'')+fmt(o.all_time.expectancy_r)+'R'}</b></div>
     <div class="row"><span>Max drawdown</span><b>${fmt(o.all_time.max_dd_r,1)}R</b></div>
-    <div class="row"><span>Started with</span><b>${o.starting_equity?money(o.starting_equity):'—'}</b></div>`
+    <div class="row"><span>Started with</span><b>${o.ladder_start?money(o.ladder_start):(o.starting_equity?money(o.starting_equity):'—')}</b></div>`
     : `<div class="empty">Broker not connected on the API server${a.error?': '+a.error:''}.</div>`;
   const labels = o.curve.map((_,i)=>i+1), data = o.curve.map(p=>p.cum_pnl!=null?p.cum_pnl:p.r);
   if(chart) chart.destroy();
@@ -334,6 +334,11 @@ function greeks(t){
   const g=(x,v)=>{ if(!x) return 'n/a'; const p=[]; if(x.delta!=null)p.push('Δ'+x.delta.toFixed(2)); if(x.gamma!=null)p.push('Γ'+x.gamma.toFixed(3)); if(x.theta!=null)p.push('Θ'+x.theta.toFixed(2)); if(x.vega!=null)p.push('ν'+x.vega.toFixed(2)); if(x.iv!=null)p.push('IV '+(x.iv*100).toFixed(0)+'%'); if(v!=null)p.push('VIX '+v.toFixed(1)); return p.join(' '); };
   if(!t.greeks_entry && !t.greeks_exit) return '';
   return '<br><span class="ago">buy: '+g(t.greeks_entry,t.vix_entry)+(t.greeks_exit?' → sell: '+g(t.greeks_exit,t.vix_exit):'')+'</span>';
+}
+async function runWeekly(){
+  const note = await ask('Run the weekly recap now', 'Writes this week\'s recap and emails it if SMTP is configured. Type "email" to send it.'); if(note===null) return;
+  const r = await api('/api/weekly/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email: /email/i.test(note||'')})});
+  if(r && r.ok){ loadReports(); }
 }
 async function setPosEx(on){
   const note = await ask(on?'Lift position cap for today':'Back to the normal cap', on?'Up to 5 open positions until the end of the day (adds to a position still count as one).':'Normal cap applies again.'); if(note===null) return;
@@ -383,6 +388,10 @@ async function loadReports(){
   const c = await api('/api/calendar');
   $('#upcoming').innerHTML = c.upcoming.length ? '<table><tr><th>Date</th><th>Event</th><th>Size</th><th>No-entry windows</th></tr>' +
     c.upcoming.map(e=>`<tr><td>${e.date}</td><td>${e.label}</td><td>×${e.size_mult}</td><td>${(e.no_entry||[]).map(w=>w[0]+'–'+w[1]).join(', ')||'—'}</td></tr>`).join('') + '</table>' : '<div class="empty">No events in the next 30 days.</div>';
+  const ws = await api('/api/weekly') || [];
+  $('#weeklylist').innerHTML = '<div class="card"><h3>Weekly recaps <button class="btn" style="float:right" onclick="runWeekly()">Run recap now</button></h3>' +
+    (ws.length ? ws.map(w=>`<details style="margin-top:8px"><summary style="font-size:13px">Week ending ${w.week_end} · <span class="${cls(w.realized_pnl)}">${money(w.realized_pnl)}</span> · ${w.trades} trades · ${w.emailed_at?'emailed':'not emailed'}</summary><pre>${(w.notes||'').replace(/</g,'&lt;')}</pre></details>`).join('')
+     : '<div class="empty">No weekly recap yet. Written every Friday after the close (5:30pm PT) and emailed when SMTP is configured.</div>') + '</div>';
   const rs = await api('/api/reports');
   $('#reportlist').innerHTML = rs.length ? rs.map(r=>`<div class="card"><h3>${r.date}<span class="chip ${(r.realized_pnl||0)>=0?'live':'suspended'}">${money(r.realized_pnl)}</span></h3>
     <p class="mono">trades ${r.trades} · wins ${r.wins} · overholds ${r.overholds} · rejections ${r.rejections}</p><details style="margin-top:8px"><summary style="font-size:12px;color:var(--dim)">Full report</summary><pre>${(r.notes||'').replace(/</g,'&lt;')}</pre></details></div>`).join('')

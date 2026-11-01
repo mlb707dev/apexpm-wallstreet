@@ -111,6 +111,7 @@ class Api:
         return {
             "mode": self.cfg.mode, "paper": self.cfg.paper, "dry_run": self.cfg.dry_run, "symbols": self.cfg.symbols,
             "account": self._account(), "starting_equity": float(start) if start else None,
+            "ladder_start": float(self.j.get_state("ladder_start") or start or 0) or None,
             "today": {"date": today, "realized_pnl": round(day_pnl, 2), "trades": trades_today,
                       "loss_budget_left": round(max(0.0, cap + day_pnl), 2),
                       "max_daily_loss": round(cap, 2),
@@ -353,6 +354,28 @@ class Api:
     def reports(self) -> list:
         return _rows(self.j.q("SELECT * FROM daily_reports ORDER BY date DESC LIMIT 30"))
 
+    def weekly_reports(self) -> list:
+        try:
+            return _rows(self.j.q("SELECT * FROM weekly_reports ORDER BY week_end DESC LIMIT 12"))
+        except Exception:  # noqa: BLE001
+            return []
+
+    def run_weekly(self, week_end: str, email: bool) -> Dict[str, Any]:
+        """Owner-triggered recap (dashboard button): write it now and optionally email it."""
+        from types import SimpleNamespace
+        from .weekly import send_email, weekly_recap
+        acct = self._account()
+        shim = SimpleNamespace(journal=self.j, registry=self.reg, cfg=self.cfg, log=log,
+                               state=SimpleNamespace(equity=acct.get("equity")) if acct.get("connected") else None)
+        report = weekly_recap(shim, week_end or None)
+        sent = False
+        if email:
+            try:
+                sent = send_email(self.cfg, "ApexPM weekly recap", report)
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": True, "emailed": False, "error": type(exc).__name__, "report": report}
+        return {"ok": True, "emailed": sent, "configured": bool(self.cfg.smtp_host and self.cfg.email_to), "report": report}
+
     def plan(self) -> Optional[Dict[str, Any]]:
         r = self.j.q1("SELECT * FROM premarket_plans ORDER BY date DESC, id DESC LIMIT 1")
         if not r:
@@ -473,7 +496,7 @@ def make_handler(api: Api, token: str = ""):
             routes = {
                 "/api/overview": api.overview, "/api/bot": api.bot, "/api/positions": api.positions,
                 "/api/trades": api.trades, "/api/strategies": api.strategies, "/api/analytics": api.analytics,
-                "/api/rejections": api.rejections, "/api/events": api.events, "/api/reports": api.reports,
+                "/api/rejections": api.rejections, "/api/events": api.events, "/api/reports": api.reports, "/api/weekly": api.weekly_reports,
                 "/api/plan": api.plan, "/api/settings": api.settings, "/api/calendar": api.calendar,
                 "/api/decisions": api.decisions, "/api/news": api.news,
             }
@@ -501,6 +524,8 @@ def make_handler(api: Api, token: str = ""):
                 return self._json(api.set_profile(str(body.get("profile", "")), str(body.get("note", ""))))
             if path == "/api/decisions/resolve":
                 return self._json(api.resolve_decision(int(body.get("id", 0)), str(body.get("status", "")), str(body.get("note", ""))))
+            if path == "/api/weekly/run":
+                return self._json(api.run_weekly(str(body.get("week_end", "")), bool(body.get("email"))))
             if path == "/api/settings/positions_exception":
                 return self._json(api.set_positions_exception(bool(body.get("on")), str(body.get("note", ""))))
             if path == "/api/settings/pause":

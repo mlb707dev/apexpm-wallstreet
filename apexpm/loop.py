@@ -32,6 +32,7 @@ from .profiles import positions_exception, EffectiveConfig, entries_paused, get_
 from .registry import Registry
 from .ribbon import ribbon_from_closes
 from .sizing import size_trade
+from .weekly import maybe_weekly
 from .stream import FastLayer
 from .news import NewsFeed
 from .options_exec import OptionsWrapper, size_contracts
@@ -88,7 +89,15 @@ class Bot:
         if anchor is None:
             anchor = str(acct.equity)
             self.journal.set_state(anchor_key, anchor)
+        elif float(anchor) > 0 and abs(acct.equity - float(anchor)) / float(anchor) > 0.5 \
+                and self.journal.realized_pnl_today(today) == 0.0 and not self.journal.open_trades():
+            # Stored anchor is from a different account state (paper reset, new key, deposit): re-anchor at startup too.
+            self.log.warning("startup: equity %.2f far from stored anchor %s with no trades today; re-anchoring", acct.equity, anchor)
+            anchor = str(acct.equity)
+            self.journal.set_state(anchor_key, anchor)
         self.journal.set_state("starting_equity", anchor)
+        if self.journal.get_state("ladder_start") is None or abs(acct.equity - float(self.journal.get_state("ladder_start"))) / max(acct.equity, 1) > 0.5 and not self.journal.closed_trades():
+            self.journal.set_state("ladder_start", anchor)   # where the capital ladder began (shown as "Started with")
         halted = self.journal.get_state(f"halted:{today}") == "1"
 
         # Reconcile: journal open trades vs broker positions.
@@ -735,6 +744,7 @@ class Bot:
                     safe(self.journal.set_state, "heartbeat", datetime.now(timezone.utc).isoformat(timespec="seconds"))
                     safe(self.journal.set_state, "market", "closed")
                     self._maybe_daily_review()
+                    maybe_weekly(self)
                 if self.broker.clock_is_open():
                     safe(self.journal.set_state, "market", "open")
             except KeyboardInterrupt:

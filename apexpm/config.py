@@ -124,6 +124,13 @@ class Config:
     suspend_loss_streak: int = field(default_factory=lambda: _i("SUSPEND_LOSS_STREAK", 6))
 
     # Webhook
+    # Weekly recap email (owner, 2026-11-01): Friday evenings after the close. Secrets never logged.
+    smtp_host: str = field(default_factory=lambda: _s("SMTP_HOST", ""))
+    smtp_port: int = field(default_factory=lambda: _i("SMTP_PORT", 587))
+    smtp_user: str = field(default_factory=lambda: _s("SMTP_USER", ""), repr=False)
+    smtp_pass: str = field(default_factory=lambda: _s("SMTP_PASS", ""), repr=False)
+    email_to: str = field(default_factory=lambda: _s("EMAIL_TO", ""), repr=False)
+    email_from: str = field(default_factory=lambda: _s("EMAIL_FROM", ""), repr=False)
     webhook_enabled: bool = field(default_factory=lambda: _b("WEBHOOK_ENABLED", False))
     webhook_port: int = field(default_factory=lambda: _i("WEBHOOK_PORT", 8787))
     webhook_secret: str = field(default_factory=lambda: _s("WEBHOOK_SECRET", ""), repr=False)
