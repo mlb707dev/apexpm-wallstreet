@@ -111,14 +111,9 @@ cp .env.example .env          # add your Alpaca PAPER keys
 .venv/bin/python -m pytest
 ```
 
-## Built with AI
+## How I built it
 
-This project was built in a conversation with Claude Code. The human set the
-goals, constraints and priorities, supplied the trading knowledge, and made
-every promotion decision. The model wrote the code, ran the backtests, and
-ran independent review passes on its own output. Two findings from those
-reviews shaped the framework: a same-bar look-ahead in an early backtester,
-and a paper-order path that assumed fills. Both are now tested against.
+I specified the system and owned the decisions: the strategy framework, the risk rules that cannot be bypassed, the governance rules for promoting a strategy from research to paper to live, and the trading logic itself. I ran it as a spec-driven build with Claude Code handling implementation under my review, and I made every promotion call. I had the code put through independent review passes before trusting it, and those caught two defects that shaped the framework: a same-bar look-ahead in an early backtester, and a paper-order path that assumed fills. Both are now covered by tests.
 
 ## Disclaimer
 
