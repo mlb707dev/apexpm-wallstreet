@@ -123,7 +123,8 @@ class Config:
 
     # Dashboard
     dashboard_bind: str = field(default_factory=lambda: _s("DASHBOARD_BIND", "127.0.0.1"))
-    dashboard_port: int = field(default_factory=lambda: _i("DASHBOARD_PORT", 8788))
+    dashboard_port: int = field(default_factory=lambda: _i("PORT", _i("DASHBOARD_PORT", 8788)))  # Render sets PORT
+    run_dashboard: bool = field(default_factory=lambda: _b("RUN_DASHBOARD", False))            # serve alongside the bot
     dashboard_token: str = field(default_factory=lambda: _s("DASHBOARD_TOKEN", ""), repr=False)
 
     # Storage

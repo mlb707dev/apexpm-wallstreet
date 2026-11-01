@@ -192,12 +192,15 @@ def make_handler(api: Api, token: str = ""):
     return Handler
 
 
-def serve(cfg: Config, port: Optional[int] = None, block: bool = True) -> HTTPServer:
+def serve(cfg: Config, port: Optional[int] = None, block: bool = True,
+          journal: Optional[Journal] = None) -> HTTPServer:
+    """Serve the dashboard. Pass the bot's own Journal when running in-process so
+    both share one locked connection."""
     port = port or cfg.dashboard_port
     bind = cfg.dashboard_bind
     if bind not in ("127.0.0.1", "localhost") and not cfg.dashboard_token:
         raise RuntimeError("refusing to bind the dashboard beyond localhost without DASHBOARD_TOKEN")
-    api = Api(cfg, Journal(cfg.db_path))
+    api = Api(cfg, journal or Journal(cfg.db_path))
     httpd = HTTPServer((bind, port), make_handler(api, cfg.dashboard_token))
     if block:
         print(f"dashboard: http://127.0.0.1:{port}")

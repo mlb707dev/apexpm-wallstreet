@@ -388,6 +388,10 @@ class Bot:
 
     # ---- run --------------------------------------------------------------
     def run_forever(self) -> None:
+        if self.cfg.run_dashboard:
+            from .dashboard import serve
+            serve(self.cfg, block=False, journal=self.journal)
+            self.log.info("dashboard serving on %s:%d", self.cfg.dashboard_bind, self.cfg.dashboard_port)
         self.startup()
         self.log.info("loop every %ds", self.cfg.scan_interval_sec)
         while True:
@@ -402,4 +406,8 @@ class Bot:
                 return
             except Exception as exc:  # noqa: BLE001
                 self.log.exception("loop error: %s", exc)
-            time.sleep(self.cfg.scan_interval_sec)
+            try:
+                time.sleep(self.cfg.scan_interval_sec)
+            except KeyboardInterrupt:
+                self.log.info("stopped by user")
+                return
