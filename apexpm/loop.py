@@ -133,7 +133,7 @@ class Bot:
             return self._levels[symbol]
         if not self.feed.connected:
             return None
-        daily = self.feed.daily(symbol)
+        daily = self.feed.daily(symbol, lookback_days=600)
         if len(daily) < self.cfg.atr_period + 1:
             self.log.warning("%s: not enough daily bars (%d)", symbol, len(daily))
             return None
@@ -143,6 +143,19 @@ class Bot:
             self.log.warning("%s: levels unavailable: %s", symbol, exc)
             return None
         self._levels[symbol] = lv
+        extra = {"day": lv.as_dict()}
+        try:
+            weekly = daily.resample("W-FRI").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+            monthly = daily.resample("ME").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+            now_et = datetime.now(timezone.utc).astimezone(ET)
+            # completed periods only
+            weekly = weekly[weekly.index.date <= now_et.date() - timedelta(days=now_et.weekday() + 1)]
+            monthly = monthly[monthly.index.to_period("M") < pd.Period(now_et.date(), "M")]
+            for name, frame in (("week", weekly), ("month", monthly)):
+                if len(frame) >= self.cfg.atr_period + 1:
+                    extra[name] = levels_from_daily(frame, self.cfg.atr_period).as_dict()
+        except Exception as exc:  # noqa: BLE001
+            self.log.warning("%s: multi-timeframe levels unavailable: %s", symbol, exc)
         try:
             v = daily["volume"]
             safe(self.journal.set_state, f"vol:{symbol}", json.dumps({
@@ -272,7 +285,7 @@ class Bot:
         if snap.minutes_since_open < 0:
             reject(symbol, "session", "premarket")
             return taken
-        if riskmod.past_cutoff(now_et, self.cfg.no_entry_after):
+        if riskmod.past_cutoff(now_et, self.cfg.no_entry_after) or (now_et.hour * 60 + now_et.minute) >= self._close_minutes(now_et) - 30:
             reject(symbol, "session", "past_no_entry_cutoff")
             return taken
         if today in self.cfg.blackout_dates:
@@ -311,7 +324,8 @@ class Bot:
                 continue
             if sig.context.get("asset") == "option":
                 n, why_sz = size_contracts(self.state.equity, sig.entry, self.cfg.opt_premium_stop,
-                                           ecfg.max_pos_pct, self.cfg.opt_max_premium_pct)
+                                           ecfg.max_pos_pct, self.cfg.opt_max_premium_pct,
+                                           at_least_one=(ecfg.profile == "hyper"))
                 if n < 1:
                     reject(symbol, strat.name, f"size:{why_sz}", sig.direction)
                     continue
@@ -333,6 +347,9 @@ class Bot:
                 qty = round(qty, 3) if self.cfg.fractional_shares else float(int(qty))
                 sz = sz.__class__(qty, sz.dollar_risk * cm, sz.kelly_full, sz.kelly_used, sz.vol_scale, qty * snap.price)
                 sig.context["confluence_mult"] = cm
+            if sig.direction == "short" and self.cfg.fractional_shares and float(sz.qty) != int(sz.qty):
+                reject(symbol, strat.name, "fractional_short_not_allowed", sig.direction)
+                continue
             chased = abs(snap.price - sig.entry) > self.cfg.level_tolerance_atr * snap.levels.atr * 2
             if chased and not self.cfg.allow_gap_fills and not sig.context.get("fill_at_market"):
                 reject(symbol, strat.name, "gap_fill_skipped", sig.direction)
@@ -367,9 +384,9 @@ class Bot:
             rr_planned=sig.rr, vol_scale=sz.vol_scale, kelly_used=sz.kelly_used,
             mode=mode, status="open" if dry else "pending", notes=json.dumps(sig.context),
             webhook_agreed=None if webhook_agreed is None else int(webhook_agreed))
-        self.state.trades_today += 1
         self.state.open_symbols.add(sig.symbol)
         if dry:
+            self.state.trades_today += 1
             self.log.info("DRY_RUN trade #%d would %s %s x%s @ %.2f stop=%.2f target=%.2f rr=%.2f",
                           tid, side, sig.symbol, qty, sig.entry, sig.stop, sig.target, sig.rr)
             return
@@ -391,6 +408,7 @@ class Bot:
             self.journal.cancel_trade(tid, f"submit_failed:{type(exc).__name__}", now_utc.isoformat(timespec="seconds"))
             self.state.open_symbols.discard(sig.symbol)
             return
+        self.state.trades_today += 1
         self.journal.set_order_id(tid, oid)
         self.log.info("trade #%d pending (%s) order=%s", tid, mode, oid)
 
@@ -452,8 +470,8 @@ class Bot:
             safe(self.journal.set_state, "stream_ticks", str(self.fast.ticks))
             safe(self.journal.set_state, "stream_last_tick", now_utc.isoformat(timespec="seconds"))
         for t in self.journal.open_trades():
-            if t["symbol"] != symbol:
-                continue
+            if t["symbol"] != symbol or (t["asset"] or "stock") != "stock":
+                continue   # option positions are marked on the slow loop (REST), never per tick
             try:
                 self._check_exit(t, now_utc, now_et, today, price=price)
             except Exception as exc:  # noqa: BLE001
@@ -480,6 +498,9 @@ class Bot:
 
     def _check_exit(self, t, now_utc: datetime, now_et: datetime, today: str, price: Optional[float] = None) -> None:
       with self._exit_lock:
+        t = self.journal.get_trade(t["id"])          # re-read under the lock: another thread may have closed it
+        if t is None or t["status"] != "open":
+            return
         if t["asset"] == "option":
             return self._check_option_exit(t, now_utc, now_et, today)
         sign = 1 if t["direction"] == "long" else -1
@@ -516,14 +537,15 @@ class Bot:
         exit_price = price
         exit_oid = None
         if t["mode"] != "DRY_RUN":
-            exit_oid = self.broker.close_position(t["symbol"])
-            # best-effort real fill price
             try:
-                st = self.broker.order_state(exit_oid) if exit_oid else None
-                if st and st.filled_avg_price:
-                    exit_price = st.filled_avg_price
-            except Exception:  # noqa: BLE001
-                pass
+                exit_oid = self.broker.close_position(t["symbol"])
+            except Exception as exc:  # noqa: BLE001
+                if "position" in str(exc).lower() or "404" in str(exc):
+                    self.log.warning("trade #%d: broker holds no %s position; closing journal row (%s)", t["id"], t["symbol"], exc)
+                    reason = "broker_no_position"
+                else:
+                    raise
+            exit_price = self._fill_price(exit_oid, exit_price)
         if exit_price is None:
             exit_price = t["target"] if reason in ("target", "runner_target") else t["stop"] if reason.endswith("stop") else t["entry"]
             self.log.warning("trade #%d closed %s without a live price; recorded %.2f", t["id"], reason, exit_price)
@@ -552,6 +574,27 @@ class Bot:
         except Exception as exc:  # noqa: BLE001
             self.log.exception("daily review failed: %s", exc)
 
+    def _close_minutes(self, now_et: datetime) -> int:
+        """Minutes after midnight ET of today's close (13:00 on early-close days)."""
+        ctx = self._day_ctx
+        if ctx and any(e["type"] == "half_day" for e in ctx.events):
+            return 13 * 60
+        return 16 * 60
+
+    def _fill_price(self, order_id: Optional[str], fallback: Optional[float]) -> Optional[float]:
+        """Best-effort real fill price: poll the order a few times before falling back."""
+        if not order_id:
+            return fallback
+        for _ in range(4):
+            try:
+                st = self.broker.order_state(order_id)
+                if st and st.filled_avg_price:
+                    return st.filled_avg_price
+            except Exception:  # noqa: BLE001
+                break
+            time.sleep(0.5)
+        return fallback
+
     def _check_option_exit(self, t, now_utc: datetime, now_et: datetime, today: str) -> None:
         """Option position: premium stop/target with the runner engine on premium,
         plus the underlying's stop/target, max hold, flat-by, and expiry-day cutoff."""
@@ -567,7 +610,7 @@ class Bot:
             reason = "max_hold"
         elif riskmod.past_cutoff(now_et, self.cfg.flat_by):
             reason = "flat_by"
-        elif expiry == today and (now_et.hour, now_et.minute) >= (15, 60 - self.cfg.opt_flat_before_close_min):
+        elif expiry == today and (now_et.hour * 60 + now_et.minute) >= self._close_minutes(now_et) - self.cfg.opt_flat_before_close_min:
             reason = "expiry_cutoff"
         else:
             under = (self.fast.prices.get(t["symbol"], 5) if self.fast else None)
@@ -589,13 +632,22 @@ class Bot:
         exit_oid = None
         exit_price = mark
         if t["mode"] != "DRY_RUN":
-            exit_oid = self.obroker.sell_to_close(t["contract"], int(t["qty"]))
-            try:
-                st = self.broker.order_state(exit_oid) if exit_oid else None
-                if st and st.filled_avg_price:
-                    exit_price = st.filled_avg_price
+            qty = int(t["qty"])
+            try:   # (5) sell whatever the broker actually holds
+                pos = self.broker.position_map().get(t["contract"])
+                if pos is not None:
+                    qty = int(pos.qty)
             except Exception:  # noqa: BLE001
                 pass
+            try:
+                exit_oid = self.obroker.sell_to_close(t["contract"], qty)
+            except Exception as exc:  # noqa: BLE001
+                if "position" in str(exc).lower() or "404" in str(exc) or "insufficient" in str(exc).lower():
+                    self.log.warning("option trade #%d: broker holds no %s; closing journal row (%s)", t["id"], t["contract"], exc)
+                    reason = "broker_no_position"
+                else:
+                    raise
+            exit_price = self._fill_price(exit_oid, exit_price)
         if exit_price is None:
             exit_price = t["stop"] if reason.endswith("stop") else t["entry"]
         if self.journal.close_trade(t["id"], exit_price, reason, None, exit_oid, now=now_utc.isoformat(timespec="seconds")):

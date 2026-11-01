@@ -120,7 +120,8 @@ class FastLayer:
             async def on_update(u):
                 try:
                     o = u.order
-                    self.on_order({"event": str(u.event), "order_id": str(o.id), "symbol": o.symbol,
+                    ev = getattr(u.event, "value", None) or str(u.event)
+                    self.on_order({"event": str(ev).lower().split(".")[-1], "order_id": str(o.id), "symbol": o.symbol,
                                    "status": str(o.status.value if hasattr(o.status, "value") else o.status),
                                    "filled_qty": float(o.filled_qty or 0),
                                    "filled_avg_price": float(o.filled_avg_price) if o.filled_avg_price else None})

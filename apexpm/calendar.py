@@ -110,9 +110,12 @@ def earnings_events(journal, d: date, traded: List[str]) -> List[Dict]:
     """Earnings on `d` (or after the close on the prior session) from the journal table."""
     if journal is None:
         return []
+    prev = d - timedelta(days=1)
+    while prev.weekday() >= 5:
+        prev -= timedelta(days=1)
     try:
         rows = journal.q("SELECT symbol, date, timing FROM calendar_events WHERE kind='earnings' AND (date=? OR date=?)",
-                         (d.isoformat(), (d - timedelta(days=1)).isoformat()))
+                         (d.isoformat(), prev.isoformat()))
     except Exception:  # noqa: BLE001
         return []
     out = []

@@ -63,13 +63,18 @@ class OptionsWrapper(Strategy):
                       rr=round(tgt_pct / stop_pct, 2), context=ctx), None
 
 
-def size_contracts(equity: float, premium: float, stop_pct: float, risk_pct: float, max_premium_pct: float) -> Tuple[int, Optional[str]]:
-    """Contracts for a given dollar-risk budget; at least one if it fits the premium cap."""
+def size_contracts(equity: float, premium: float, stop_pct: float, risk_pct: float, max_premium_pct: float,
+                   at_least_one: bool = True) -> Tuple[int, Optional[str]]:
+    """Contracts for a given dollar-risk budget. `at_least_one` (hyper band) allows a single
+    contract even when it exceeds the risk budget, as long as it fits the premium cap."""
     if premium <= 0:
         return 0, "bad_premium"
     risk_per = premium * 100 * stop_pct + 1.3
     n = int((equity * risk_pct) // risk_per)
-    n = max(n, 1)
+    if n < 1:
+        if not at_least_one:
+            return 0, "risk_budget_too_small"
+        n = 1
     cap = int((equity * max_premium_pct) // (premium * 100))
     if cap < 1:
         return 0, "premium_exceeds_cap"
