@@ -10,6 +10,7 @@ broker's fill price. Every step writes the journal BEFORE talking to the broker.
 from __future__ import annotations
 
 import json
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
@@ -28,6 +29,7 @@ from .profiles import EffectiveConfig, entries_paused, get_profile
 from .registry import Registry
 from .ribbon import ribbon_from_closes
 from .sizing import size_trade
+from .stream import FastLayer
 from .strategies import ExampleBreakout
 from .strategies.base import MarketSnapshot, Signal
 from .webhook import WebhookServer
@@ -51,6 +53,9 @@ class Bot:
         self._reached: Dict[str, Dict[str, float]] = {}
         self._today = ""
         self._day_ctx: Optional[cal.DayContext] = None
+        self._momentum: Dict[str, bool] = {}
+        self._exit_lock = threading.RLock()
+        self.fast: Optional[FastLayer] = None
         cal.ensure_table(self.journal)
 
     # ---- startup ----------------------------------------------------------
@@ -152,7 +157,8 @@ class Bot:
         if len(ltf) < self.cfg.ema_slow or len(htf) < self.cfg.ema_slow:
             self.log.warning("%s: not enough intraday bars", symbol)
             return None
-        price = self.feed.last_price(symbol, self.cfg.max_price_age_sec) or float(ltf["close"].iloc[-1])
+        price = (self.fast.prices.get(symbol, 5) if self.fast else None) \
+            or self.feed.last_price(symbol, self.cfg.max_price_age_sec) or float(ltf["close"].iloc[-1])
         try:
             if "volume" in ltf and hasattr(ltf.index, "tz_convert"):
                 et_idx = ltf.index.tz_convert(ET)
@@ -177,6 +183,7 @@ class Bot:
         now_et = now_utc.astimezone(ET)
         mins = (now_et.hour - 9) * 60 + now_et.minute - 30
         regime = "trend_up" if rh.state == "bull" else "trend_down" if rh.state == "bear" else "chop"
+        self._momentum[symbol] = {"long": rl.fast > rl.mid, "short": rl.fast < rl.mid}
         return MarketSnapshot(symbol=symbol, price=price, levels=lv, ribbon_ltf=rl, ribbon_htf=rh,
                               ltf_closes=list(ltf["close"].values), regime=regime,
                               reached_today=prev_reached, bar_index_today=max(0, mins) // self.cfg.bar_minutes,
@@ -398,17 +405,58 @@ class Bot:
             except Exception as exc:  # noqa: BLE001
                 self.log.exception("exit check failed for trade #%d: %s", t["id"], exc)
 
-    def _check_exit(self, t, now_utc: datetime, now_et: datetime, today: str) -> None:
+    # ---- fast layer callbacks (stream thread) --------------------------------
+    def _on_tick(self, symbol: str, price: float) -> None:
+        """Runs on every trade print: exit engine at tick speed for that symbol."""
+        if self.state is None:
+            return
+        now_utc = datetime.now(timezone.utc)
+        now_et = now_utc.astimezone(ET)
+        today = now_et.date().isoformat()
+        if self.fast and self.fast.ticks % 50 == 0:
+            safe(self.journal.set_state, "stream_ticks", str(self.fast.ticks))
+            safe(self.journal.set_state, "stream_last_tick", now_utc.isoformat(timespec="seconds"))
+        for t in self.journal.open_trades():
+            if t["symbol"] != symbol:
+                continue
+            try:
+                self._check_exit(t, now_utc, now_et, today, price=price)
+            except Exception as exc:  # noqa: BLE001
+                self.log.exception("tick exit failed for trade #%d: %s", t["id"], exc)
+
+    def _on_order(self, ev: dict) -> None:
+        """Runs on every order update: promote fills immediately."""
+        try:
+            if ev["event"] not in ("fill", "partial_fill", "canceled", "expired", "rejected"):
+                return
+            with self._exit_lock:
+                for t in self.journal.pending_trades():
+                    if t["broker_order_id"] != ev["order_id"]:
+                        continue
+                    if ev["filled_qty"] > 0:
+                        self.journal.mark_filled(t["id"], ev["filled_avg_price"] or t["entry"], ev["filled_qty"], ev["order_id"])
+                        self.log.info("trade #%d filled via stream %.0f @ %s", t["id"], ev["filled_qty"], ev["filled_avg_price"])
+                    elif ev["event"] in ("canceled", "expired", "rejected"):
+                        self.journal.cancel_trade(t["id"], f"broker_{ev['event']}")
+                        if self.state:
+                            self.state.open_symbols.discard(t["symbol"])
+        except Exception as exc:  # noqa: BLE001
+            self.log.exception("order update failed: %s", exc)
+
+    def _check_exit(self, t, now_utc: datetime, now_et: datetime, today: str, price: Optional[float] = None) -> None:
+      with self._exit_lock:
         sign = 1 if t["direction"] == "long" else -1
         opened = datetime.fromisoformat(t["opened_at"])
         if opened.tzinfo is None:
             opened = opened.replace(tzinfo=timezone.utc)
         held_min = (now_utc - opened).total_seconds() / 60
-        price = None
-        try:
-            price = self.feed.last_price(t["symbol"], self.cfg.max_price_age_sec) if self.feed.connected else None
-        except Exception as exc:  # noqa: BLE001
-            self.log.warning("price fetch failed for %s: %s", t["symbol"], exc)
+        if price is None and self.fast:
+            price = self.fast.prices.get(t["symbol"], 5)
+        if price is None:
+            try:
+                price = self.feed.last_price(t["symbol"], self.cfg.max_price_age_sec) if self.feed.connected else None
+            except Exception as exc:  # noqa: BLE001
+                self.log.warning("price fetch failed for %s: %s", t["symbol"], exc)
         reason = None
         if held_min >= t["max_hold_min"]:
             reason = "max_hold"
@@ -420,14 +468,8 @@ class Bot:
             lv_dir = (sorted(lv.up.values()) if t["direction"] == "long" else sorted(lv.down.values(), reverse=True)) if lv else []
             plan = ExitPlan(t["direction"], t["entry"], t["initial_stop"] or t["stop"], t["stop"], t["target"], atr, lv_dir,
                             runner=bool(t["runner"]), be_done=bool(t["be_done"]))
-            momentum = False
-            try:
-                ltf = self.feed.intraday(t["symbol"], self.cfg.bar_minutes) if self.feed.connected else None
-                if ltf is not None and len(ltf) >= self.cfg.ema_slow:
-                    rl = ribbon_from_closes(ltf["close"].values, self.cfg.ema_fast, self.cfg.ema_mid, self.cfg.ema_slow)
-                    momentum = (rl.fast > rl.mid) if sign == 1 else (rl.fast < rl.mid)
-            except Exception:  # noqa: BLE001
-                momentum = False
+            m = self._momentum.get(t["symbol"])
+            momentum = bool(m and m["long" if sign == 1 else "short"])
             reason, _px, changed = exit_update(plan, price, price, momentum, self.cfg)
             if changed or plan.stop != t["stop"] or plan.target != t["target"]:
                 self.journal.update_exit_plan(t["id"], plan.stop, plan.target, plan.runner, plan.be_done)
@@ -480,7 +522,10 @@ class Bot:
             serve(self.cfg, block=False, journal=self.journal)
             self.log.info("dashboard serving on %s:%d", self.cfg.dashboard_bind, self.cfg.dashboard_port)
         self.startup()
-        self.log.info("loop every %ds", self.cfg.scan_interval_sec)
+        if self.cfg.stream_enabled and self.broker.connected and not self.cfg.dry_run:
+            self.fast = FastLayer(self.cfg, self.cfg.symbols, self._on_tick, self._on_order)
+            self.fast.start()
+        self.log.info("loop every %ds; fast layer %s", self.cfg.scan_interval_sec, "on" if self.fast else "off")
         while True:
             try:
                 if self.broker.clock_is_open():

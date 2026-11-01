@@ -58,7 +58,9 @@ class Config:
 
     # Universe and session
     symbols: List[str] = field(default_factory=lambda: _list("SYMBOLS", ["SPY"]))
-    scan_interval_sec: int = field(default_factory=lambda: _i("SCAN_INTERVAL_SEC", 60))
+    scan_interval_sec: int = field(default_factory=lambda: _i("SCAN_INTERVAL_SEC", 15))
+    stream_enabled: bool = field(default_factory=lambda: _b("STREAM_ENABLED", True))
+    data_feed: str = field(default_factory=lambda: _s("DATA_FEED", "iex"))   # iex (free) | sip (paid)
     bar_minutes: int = field(default_factory=lambda: _i("BAR_MINUTES", 5))
     htf_bar_minutes: int = field(default_factory=lambda: _i("HTF_BAR_MINUTES", 15))
     no_entry_after: str = field(default_factory=lambda: _s("NO_ENTRY_AFTER", "15:30"))
