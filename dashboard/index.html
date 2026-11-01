@@ -214,7 +214,7 @@ function renderBot(b){
     <div class="row"><span>Max trades / day</span><b>${e.max_trades_per_day}</b></div>
     <div class="row"><span>Max open positions</span><b>${e.max_positions}</b></div>
     <div class="row"><span>Kelly fraction</span><b>×${fmt(e.kelly_fraction,2)}</b></div>
-    <div class="row"><span>Daily loss cap</span><b>${money(e.max_daily_loss)}</b></div>
+    <div class="row"><span>Daily loss cap</span><b>${e.max_daily_loss_pct?(e.max_daily_loss_pct*100).toFixed(0)+'% of start equity (max '+money(e.max_daily_loss)+')':money(e.max_daily_loss)}</b></div>
     <div class="row"><span>Stop cooldown</span><b>${e.stop_cooldown_min} min</b></div>
     <p style="margin-top:8px">Hard ceilings in config still apply on every profile.</p>`;
 }

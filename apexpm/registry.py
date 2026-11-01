@@ -121,7 +121,7 @@ class Registry:
         cum = np.cumsum(rs)
         dd = float((np.maximum.accumulate(cum) - cum).max())
         overholds = sum(1 for r in rows if r["level_reached"] is not None and r["level_targeted"]
-                        and r["level_reached"] > r["level_targeted"] + 0.1 and r["exit_reason"] != "target")
+                        and r["level_reached"] > r["level_targeted"] + 0.1 and r["exit_reason"] not in ("target", "runner_target", "trail_stop"))
         disc = 1.0 - overholds / len(rows)
         return StrategyStats(name=name, trades=len(rows), win_rate=float((rs > 0).mean()),
                              expectancy_r=float(rs.mean()),

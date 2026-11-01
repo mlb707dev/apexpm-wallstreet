@@ -116,6 +116,13 @@ class Config:
     entry_good_for_bars: int = field(default_factory=lambda: _i("ENTRY_GOOD_FOR_BARS", 3))
     max_price_age_sec: int = field(default_factory=lambda: _i("MAX_PRICE_AGE_SEC", 120))
 
+    # Exit engine
+    exit_be_at_r: float = field(default_factory=lambda: _f("EXIT_BE_AT_R", 1.0))
+    exit_be_offset_atr: float = field(default_factory=lambda: _f("EXIT_BE_OFFSET_ATR", 0.02))
+    exit_runner: bool = field(default_factory=lambda: _b("EXIT_RUNNER", True))
+    exit_trail_atr: float = field(default_factory=lambda: _f("EXIT_TRAIL_ATR", 0.1))
+    max_daily_loss_pct: float = field(default_factory=lambda: _f("MAX_DAILY_LOSS_PCT", 0.06))  # of session start equity
+
     # Backtest realism
     bt_fill_model: str = field(default_factory=lambda: _s("BT_FILL_MODEL", "limit"))  # limit | next_open
     bt_slippage: float = field(default_factory=lambda: _f("BT_SLIPPAGE", 0.03))        # $/share per marketable side

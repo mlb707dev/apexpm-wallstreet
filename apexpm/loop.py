@@ -20,6 +20,7 @@ from .broker import Broker
 from .config import Config
 from .data import DataFeed
 from .db import Journal, et_date
+from .exits import ExitPlan, update as exit_update
 from .levels import LevelMap, levels_from_daily
 from .log import get_logger, safe
 from . import calendar as cal
@@ -199,7 +200,10 @@ class Bot:
             return []
         if self.state.halted:
             return []
-        dl = riskmod.check_daily_loss(self.state, self.cfg.max_daily_loss)
+        cap = self.cfg.max_daily_loss
+        if self.cfg.max_daily_loss_pct > 0:
+            cap = min(cap, self.state.starting_equity * self.cfg.max_daily_loss_pct)
+        dl = riskmod.check_daily_loss(self.state, cap)
         if dl:
             self.log.warning("forced DRY_RUN for today: %s", dl)
 
@@ -402,10 +406,23 @@ class Bot:
         elif riskmod.past_cutoff(now_et, self.cfg.flat_by):
             reason = "flat_by"
         elif price is not None:
-            if (price - t["target"]) * sign >= 0:
-                reason = "target"
-            elif (price - t["stop"]) * sign <= 0:
-                reason = "stop"
+            lv = self._levels.get(t["symbol"])
+            atr = lv.atr if lv else abs(t["entry"] - (t["initial_stop"] or t["stop"])) * 5
+            lv_dir = (sorted(lv.up.values()) if t["direction"] == "long" else sorted(lv.down.values(), reverse=True)) if lv else []
+            plan = ExitPlan(t["direction"], t["entry"], t["initial_stop"] or t["stop"], t["stop"], t["target"], atr, lv_dir,
+                            runner=bool(t["runner"]), be_done=bool(t["be_done"]))
+            momentum = False
+            try:
+                ltf = self.feed.intraday(t["symbol"], self.cfg.bar_minutes) if self.feed.connected else None
+                if ltf is not None and len(ltf) >= self.cfg.ema_slow:
+                    rl = ribbon_from_closes(ltf["close"].values, self.cfg.ema_fast, self.cfg.ema_mid, self.cfg.ema_slow)
+                    momentum = (rl.fast > rl.mid) if sign == 1 else (rl.fast < rl.mid)
+            except Exception:  # noqa: BLE001
+                momentum = False
+            reason, _px, changed = exit_update(plan, price, price, momentum, self.cfg)
+            if changed or plan.stop != t["stop"] or plan.target != t["target"]:
+                self.journal.update_exit_plan(t["id"], plan.stop, plan.target, plan.runner, plan.be_done)
+                self.log.info("trade #%d plan: stop %.2f target %.2f runner=%s", t["id"], plan.stop, plan.target, plan.runner)
         if reason is None:
             return
         exit_price = price
@@ -420,7 +437,7 @@ class Bot:
             except Exception:  # noqa: BLE001
                 pass
         if exit_price is None:
-            exit_price = t["target"] if reason == "target" else t["stop"] if reason == "stop" else t["entry"]
+            exit_price = t["target"] if reason in ("target", "runner_target") else t["stop"] if reason.endswith("stop") else t["entry"]
             self.log.warning("trade #%d closed %s without a live price; recorded %.2f", t["id"], reason, exit_price)
         lv = self._levels.get(t["symbol"])
         reached = lv.position_in_range(exit_price) * sign if lv else None

@@ -108,6 +108,9 @@ MIGRATIONS = [
     ("trades", "session_date", "TEXT"),
     ("trades", "fill_qty", "REAL"),
     ("trades", "exit_order_id", "TEXT"),
+    ("trades", "initial_stop", "REAL"),
+    ("trades", "runner", "INTEGER NOT NULL DEFAULT 0"),
+    ("trades", "be_done", "INTEGER NOT NULL DEFAULT 0"),
     ("rejections", "session_date", "TEXT"),
     ("scans", "session_date", "TEXT"),
 ]
@@ -158,6 +161,7 @@ class Journal:
         'pending' BEFORE sending the order (intent first), then promotes it."""
         row.setdefault("opened_at", utcnow())
         row.setdefault("session_date", et_date(datetime.fromisoformat(row["opened_at"])))
+        row.setdefault("initial_stop", row.get("stop"))
         cols = ", ".join(row)
         marks = ", ".join("?" for _ in row)
         with self.tx() as c:
@@ -168,6 +172,11 @@ class Journal:
         with self.tx() as c:
             c.execute("UPDATE trades SET status='open', entry=?, qty=?, fill_qty=?, broker_order_id=COALESCE(?, broker_order_id) "
                       "WHERE id=? AND status='pending'", (fill_price, fill_qty, fill_qty, order_id, trade_id))
+
+    def update_exit_plan(self, trade_id: int, stop: float, target: float, runner: bool, be_done: bool) -> None:
+        with self.tx() as c:
+            c.execute("UPDATE trades SET stop=?, target=?, runner=?, be_done=? WHERE id=? AND closed_at IS NULL",
+                      (stop, target, int(runner), int(be_done), trade_id))
 
     def set_order_id(self, trade_id: int, order_id: Optional[str]) -> None:
         with self.tx() as c:
@@ -188,7 +197,7 @@ class Journal:
             return False
         sign = 1 if t["direction"] == "long" else -1
         pnl = (exit_price - t["entry"]) * sign * t["qty"]
-        risk = abs(t["entry"] - t["stop"])
+        risk = abs(t["entry"] - (t["initial_stop"] or t["stop"]))
         rr_real = ((exit_price - t["entry"]) * sign / risk) if risk else None
         with self.tx() as c:
             cur = c.execute(

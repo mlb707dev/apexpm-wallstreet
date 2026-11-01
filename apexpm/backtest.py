@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
+from .exits import ExitPlan, update as exit_update
 from .levels import LevelMap, build_levels, wilder_atr_series
 from .ribbon import Ribbon
 from .strategies.base import MarketSnapshot, Signal, Strategy
@@ -50,6 +51,8 @@ class BtTrade:
     gap_entry: bool = False
     signal_ts: Optional[datetime] = None
     costs: float = 0.0          # $/share total (commissions + slippage)
+    initial_stop: float = 0.0
+    plan: Optional[ExitPlan] = None
     context: Dict[str, object] = field(default_factory=dict)
 
     @property
@@ -58,7 +61,7 @@ class BtTrade:
         if self.exit_price is None:
             return 0.0
         sign = 1 if self.direction == "long" else -1
-        risk = abs(self.entry - self.stop)
+        risk = abs(self.entry - (self.initial_stop or self.stop))
         return (((self.exit_price - self.entry) * sign - self.costs) / risk) if risk else 0.0
 
     @property
@@ -205,11 +208,14 @@ class Backtester:
                             fill = sig.entry
                     if fill is not None:
                         costs = comm + (slip if marketable else 0.0)
+                        lv_dir = sorted(levels.up.values()) if sig.direction == "long" else sorted(levels.down.values(), reverse=True)
                         open_trade = BtTrade(symbol=self.symbol, setup=sig.setup, direction=sig.direction,
                                              entry_ts=ts, exit_ts=None, entry=fill, stop=sig.stop,
                                              target=sig.target, max_hold_min=sig.max_hold_min,
                                              level_targeted=sig.level_targeted, gap_entry=(fill != sig.entry),
-                                             signal_ts=pending["placed_ts"], costs=costs, context=dict(sig.context))
+                                             signal_ts=pending["placed_ts"], costs=costs, context=dict(sig.context),
+                                             initial_stop=sig.stop,
+                                             plan=ExitPlan(sig.direction, fill, sig.stop, sig.stop, sig.target, levels.atr, lv_dir))
                         trades.append(open_trade)
                         trades_today += 1
                         pending = None
@@ -231,20 +237,17 @@ class Backtester:
                 elif open_trade is not None:
                     t = open_trade
                     sign = 1 if t.direction == "long" else -1
-                    hit_stop = (lo <= t.stop) if sign == 1 else (hi >= t.stop)
-                    hit_tgt = (hi >= t.target) if sign == 1 else (lo <= t.target)
-                    reason = px = None
-                    if hit_stop:
-                        reason, px = "stop", t.stop
-                    elif hit_tgt:
-                        reason, px = "target", t.target
-                    elif (ts - t.entry_ts) >= timedelta(minutes=t.max_hold_min):
+                    e_now = ltf_ema.loc[ts]
+                    momentum = (float(e_now["fast"]) > float(e_now["mid"])) if sign == 1 else (float(e_now["fast"]) < float(e_now["mid"]))
+                    reason, px, _ = exit_update(t.plan, hi, lo, momentum, cfg)
+                    t.stop, t.target = t.plan.stop, t.plan.target
+                    if reason is None and (ts - t.entry_ts) >= timedelta(minutes=t.max_hold_min):
                         reason, px = "max_hold", close
-                    elif _past(ts_et, cfg.flat_by):
+                    elif reason is None and _past(ts_et, cfg.flat_by):
                         reason, px = "flat_by", close
                     if reason:
                         t.exit_ts, t.exit_price, t.exit_reason = ts, px, reason
-                        t.costs += comm + (0.0 if reason == "target" else slip)
+                        t.costs += comm + (0.0 if reason in ("target", "runner_target") else slip)
                         if reason == "stop":
                             last_stop[t.direction] = ts
                         last_exit_ts = ts

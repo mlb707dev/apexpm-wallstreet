@@ -87,6 +87,10 @@ class Api:
         today = et_date()
         day_pnl = self.j.realized_pnl_today(today)
         trades_today = self.j.trades_today(today)
+        start = self.j.get_state("starting_equity")
+        cap = self.cfg.max_daily_loss
+        if self.cfg.max_daily_loss_pct > 0 and start:
+            cap = min(cap, float(start) * self.cfg.max_daily_loss_pct)
         in_open = 0.0
         unreal = 0.0
         for t in open_:
@@ -101,8 +105,8 @@ class Api:
             "mode": self.cfg.mode, "paper": self.cfg.paper, "dry_run": self.cfg.dry_run, "symbols": self.cfg.symbols,
             "account": self._account(), "starting_equity": float(start) if start else None,
             "today": {"date": today, "realized_pnl": round(day_pnl, 2), "trades": trades_today,
-                      "loss_budget_left": round(max(0.0, self.cfg.max_daily_loss + day_pnl), 2),
-                      "max_daily_loss": self.cfg.max_daily_loss,
+                      "loss_budget_left": round(max(0.0, cap + day_pnl), 2),
+                      "max_daily_loss": round(cap, 2),
                       "open_positions": sum(1 for t in open_ if t["status"] == "open"),
                       "pending": sum(1 for t in open_ if t["status"] == "pending"),
                       "max_positions": self.cfg.max_positions, "in_open_notional": round(in_open, 2),
@@ -134,7 +138,8 @@ class Api:
             "profile": prof,
             "effective": {"max_pos_pct": eff.max_pos_pct, "max_trades_per_day": eff.max_trades_per_day,
                           "kelly_fraction": eff.kelly_fraction, "max_positions": self.cfg.max_positions,
-                          "max_daily_loss": self.cfg.max_daily_loss, "kill_dd_pct": self.cfg.kill_dd_pct,
+                          "max_daily_loss": self.cfg.max_daily_loss, "max_daily_loss_pct": self.cfg.max_daily_loss_pct,
+                          "kill_dd_pct": self.cfg.kill_dd_pct,
                           "stop_cooldown_min": self.cfg.stop_cooldown_min},
             "halted": self.j.get_state(f"halted:{et_date()}") == "1",
             "entries_paused": profiles.entries_paused(self.j),
