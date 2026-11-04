@@ -113,8 +113,9 @@ class Registry:
         st = self.status(name)
         if st == "live" and not self.cfg.paper and not self.cfg.dry_run:
             return "LIVE"
-        if st in ("paper", "live") and not self.cfg.dry_run:
+        if st in ("paper", "live") and not self.cfg.dry_run and self.cfg.paper:
             return "PAPER"
+        # paper-status strategy with PAPER=false would hit the live endpoint: never order
         return "DRY_RUN"
 
     # ---- stats and the learning loop ------------------------------------
