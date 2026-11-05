@@ -32,6 +32,8 @@ class StrategyStats:
     max_dd_r: float
     level_discipline: float   # share of exits at target/stop/max_hold that did not overhold past target
     loss_streak: int = 0      # current consecutive losses (most recent trades)
+    pnl: float = 0.0          # realized $ over ALL closed trades of this strategy
+    pnl_window: float = 0.0   # realized $ over the review window
 
 
 @dataclass
@@ -138,10 +140,34 @@ class Registry:
         overholds = sum(1 for r in rows if r["level_reached"] is not None and r["level_targeted"]
                         and r["level_reached"] > r["level_targeted"] + 0.1 and r["exit_reason"] not in ("target", "runner_target", "trail_stop"))
         disc = 1.0 - overholds / len(rows)
+        all_rows = [r for r in self.journal.closed_trades(name) if r["pnl"] is not None]
         return StrategyStats(name=name, trades=len(rows), win_rate=float((rs > 0).mean()),
                              expectancy_r=float(rs.mean()),
                              profit_factor=float(gw / gl) if gl else float("inf"),
-                             max_dd_r=dd, level_discipline=disc, loss_streak=streak)
+                             max_dd_r=dd, level_discipline=disc, loss_streak=streak,
+                             pnl=float(sum(r["pnl"] for r in all_rows)), pnl_window=float(sum(r["pnl"] for r in rows)))
+
+    def live_readiness(self, name: str) -> dict:
+        """Owner's live bar (2026-11-04): a strategy may go LIVE only when, over ALL its closed PAPER
+        trades, it has >= cfg.ready_min_trades, positive expectancy, and a drawdown within
+        cfg.ready_max_dd_pct of the ladder start. No override."""
+        rows = [r for r in self.journal.closed_trades(name) if r["mode"] == "PAPER" and r["rr_realized"] is not None]
+        n = len(rows)
+        exp = (sum(r["rr_realized"] for r in rows) / n) if n else None
+        start = float(self.journal.get_state("ladder_start") or self.journal.get_state("starting_equity") or 0) or 0.0
+        peak = eq = start
+        dd = 0.0
+        for r in rows:
+            eq += r["pnl"] or 0.0
+            peak = max(peak, eq)
+            if peak > 0:
+                dd = max(dd, (peak - eq) / peak)
+        min_trades = getattr(self.cfg, "ready_min_trades", 30)
+        max_dd = getattr(self.cfg, "ready_max_dd_pct", 0.30)
+        checks = [{"name": f">= {min_trades} closed paper trades", "ok": n >= min_trades, "value": n},
+                  {"name": "positive expectancy (R)", "ok": bool(exp is not None and exp > 0), "value": round(exp, 3) if exp is not None else None},
+                  {"name": f"max drawdown <= {max_dd:.0%}", "ok": dd <= max_dd, "value": round(dd, 3)}]
+        return {"ready": all(c["ok"] for c in checks), "checks": checks}
 
     def book(self, name: str) -> str:
         return BOOK[self.status(name)]

@@ -157,6 +157,10 @@ class Api:
             "halted": self.j.get_state(f"halted:{et_date()}") == "1",
             "entries_paused": profiles.entries_paused(self.j),
             "positions_exception": profiles.positions_exception(self.j),
+            "banger": {"active": self.j.get_state(f"banger_active:{et_date()}") == "1",
+                       "peak": float(self.j.get_state(f"banger_peak:{et_date()}", "0") or 0),
+                       "trigger_pct": self.cfg.banger_trigger_pct, "floor_pct": self.cfg.banger_floor_pct},
+            "readiness": self.readiness(),
             "max_positions_hard": profiles.MAX_POSITIONS_HARD,
             "key_fingerprint": (self.cfg.alpaca_api_key[:4] + "…") if self.cfg.alpaca_api_key else None,
             "stream": {"ticks": int(self.j.get_state("stream_ticks") or 0), "last_tick": self.j.get_state("stream_last_tick"),
@@ -271,7 +275,8 @@ class Api:
             e = self.reg._entries[n]
             out.append({"name": n, "description": e.strategy.description, "status": self.reg.status(n),
                         "book": self.reg.book(n), "label": self.reg.label(n),
-                        "mode": self.reg.mode_for(n), "symbols": e.symbols, "stats": st.__dict__ if st else None})
+                        "mode": self.reg.mode_for(n), "symbols": e.symbols, "stats": st.__dict__ if st else None,
+                        "live_readiness": self.reg.live_readiness(n)})
         return out
 
     def analytics(self) -> Dict[str, Any]:
@@ -344,6 +349,11 @@ class Api:
                 "by_hour": agg(hour), "by_weekday": agg(dow), "by_exit": agg(lambda t: t["exit_reason"]),
                 "by_regime": agg(lambda t: t["regime"]), "n": len(closed)}
 
+    def rejection_rows(self, date_iso: str) -> list:
+        """Every rejection row for one session date (ts, symbol, setup, direction, reason, detail)."""
+        return _rows(self.j.q("SELECT ts, symbol, setup, direction, reason, detail FROM rejections WHERE session_date=? ORDER BY id",
+                              (date_iso,)))
+
     def rejections(self, days: int = 7) -> list:
         return _rows(self.j.q(
             "SELECT session_date AS date, setup, reason, COUNT(*) AS n FROM rejections "
@@ -351,6 +361,10 @@ class Api:
 
     def events(self) -> list:
         return [dict(r) for r in self.reg.events(100)]
+
+    def readiness(self) -> Dict[str, Any]:
+        from .readiness import readiness
+        return readiness(self.j, self.cfg)
 
     def reports(self) -> list:
         return _rows(self.j.q("SELECT * FROM daily_reports ORDER BY date DESC LIMIT 30"))
@@ -375,7 +389,9 @@ class Api:
                 sent = send_email(self.cfg, "ApexPM weekly recap", report)
             except Exception as exc:  # noqa: BLE001
                 return {"ok": True, "emailed": False, "error": type(exc).__name__, "report": report}
-        return {"ok": True, "emailed": sent, "configured": bool(self.cfg.smtp_host and self.cfg.email_to), "report": report}
+        missing = [k for k, v in (("SMTP_HOST", self.cfg.smtp_host), ("SMTP_USER", self.cfg.smtp_user), ("SMTP_PASS", self.cfg.smtp_pass),
+                                  ("EMAIL_TO", self.cfg.email_to)) if not v]   # names only, never values
+        return {"ok": True, "emailed": sent, "configured": not missing, "missing": missing, "report": report}
 
     def plan(self) -> Optional[Dict[str, Any]]:
         r = self.j.q1("SELECT * FROM premarket_plans ORDER BY date DESC, id DESC LIMIT 1")
@@ -409,11 +425,28 @@ class Api:
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "profile": name}
 
-    def set_status(self, name: str, status: str, note: str) -> Dict[str, Any]:
+    def set_status(self, name: str, status: str, note: str, confirm: str = "") -> Dict[str, Any]:
+        """Promotion gate (owner, 2026-11-04). To paper: typed confirmation word + a reason, journaled.
+        To live: the server refuses unless the strategy passes the live readiness bar; no override."""
         if name not in self.reg.names():
             return {"ok": False, "error": "unknown_strategy"}
-        if status not in ("research", "paper", "suspended", "retired"):
+        if status not in ("research", "paper", "live", "suspended", "retired"):
             return {"ok": False, "error": "status_not_allowed_from_dashboard"}
+        note = (note or "").strip()
+        if status == "paper":
+            if confirm.strip().lower() != "promote":
+                return {"ok": False, "error": "paper promotion needs the typed word 'promote'"}
+            if len(note) < 5:
+                return {"ok": False, "error": "paper promotion needs a reason (5+ characters)"}
+        if status == "live":
+            if confirm.strip().lower() != "go live":
+                return {"ok": False, "error": "live promotion needs the typed words 'go live'"}
+            r = self.reg.live_readiness(name)
+            if not r["ready"]:
+                failed = ", ".join(f"{c['name']} ({c['value']})" for c in r["checks"] if not c["ok"])
+                return {"ok": False, "error": f"live bar not met: {failed}", "readiness": r}
+            if len(note) < 5:
+                return {"ok": False, "error": "live promotion needs a reason (5+ characters)"}
         self.reg.set_status(name, status, f"dashboard: {note}" if note else "dashboard")
         return {"ok": True, "status": self.reg.status(name)}
 
@@ -497,10 +530,14 @@ def make_handler(api: Api, token: str = ""):
             routes = {
                 "/api/overview": api.overview, "/api/bot": api.bot, "/api/positions": api.positions,
                 "/api/trades": api.trades, "/api/strategies": api.strategies, "/api/analytics": api.analytics,
-                "/api/rejections": api.rejections, "/api/events": api.events, "/api/reports": api.reports, "/api/weekly": api.weekly_reports,
+                "/api/rejections": api.rejections, "/api/events": api.events, "/api/reports": api.reports, "/api/weekly": api.weekly_reports, "/api/readiness": api.readiness,
                 "/api/plan": api.plan, "/api/settings": api.settings, "/api/calendar": api.calendar,
                 "/api/decisions": api.decisions, "/api/news": api.news,
             }
+            if path == "/api/rejections/rows":
+                from urllib.parse import parse_qs
+                d = parse_qs(urlparse(self.path).query).get("date", [""])[0]
+                return self._json(api.rejection_rows(d or et_date()))
             if path in routes:
                 try:
                     return self._json(routes[path]())
@@ -527,7 +564,8 @@ def make_handler(api: Api, token: str = ""):
             except json.JSONDecodeError:
                 return self._json({"ok": False, "error": "bad_json"}, 400)
             if path == "/api/strategy/status":
-                return self._json(api.set_status(str(body.get("name", "")), str(body.get("status", "")), str(body.get("note", ""))))
+                return self._json(api.set_status(str(body.get("name", "")), str(body.get("status", "")), str(body.get("note", "")),
+                                                 str(body.get("confirm", ""))))
             if path == "/api/settings/profile":
                 return self._json(api.set_profile(str(body.get("profile", "")), str(body.get("note", ""))))
             if path == "/api/decisions/resolve":

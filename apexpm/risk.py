@@ -66,3 +66,30 @@ def entry_gates(state: RiskState, *, symbol: str, direction: str, now: datetime,
 def past_cutoff(now_et: datetime, hhmm: str) -> bool:
     h, m = (int(x) for x in hhmm.split(":"))
     return (now_et.hour, now_et.minute) >= (h, m)
+
+
+@dataclass
+class BangerDecision:
+    """Day-P&L defensive mode (owner's "banger rule", 2026-11-04). Once the day's gain reaches
+    trigger_pct of the session-start equity the bot protects it: a floor at floor_pct of the peak gain
+    halts the day if touched, size drops to size_mult, and only top-conviction setups may enter."""
+    active: bool
+    peak_gain: float
+    halt: bool
+    size_mult: float
+    conviction_min: int
+    floor: float
+
+
+def banger_update(day_gain: float, start_equity: float, prev_peak: float, was_active: bool, *,
+                  trigger_pct: float, floor_pct: float, size_mult: float, conviction_min: int) -> BangerDecision:
+    """day_gain = realized + unrealized P&L today. Pure: the caller persists peak/active per session date."""
+    if start_equity <= 0 or trigger_pct <= 0:
+        return BangerDecision(False, prev_peak, False, 1.0, 0, 0.0)
+    active = was_active or day_gain >= trigger_pct * start_equity
+    if not active:
+        return BangerDecision(False, max(prev_peak, day_gain), False, 1.0, 0, 0.0)
+    peak = max(prev_peak, day_gain)
+    floor = floor_pct * peak
+    halt = day_gain <= floor
+    return BangerDecision(True, peak, halt, size_mult, conviction_min, floor)

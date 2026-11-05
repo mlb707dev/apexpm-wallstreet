@@ -85,6 +85,8 @@ def daily_review(bot, date_iso: str = None) -> str:
     lines += ["", "## Governance actions", ""] + ([f"- {a}" for a in actions] or ["- none"])
     pend = reg.decisions("pending")
     lines += ["", "## Decisions waiting for the owner", ""] + ([f"- #{d['id']} {d['title']}: {d['proposal']}" for d in pend] or ["- none"])
+    from .readiness import readiness, readiness_lines
+    lines += [""] + readiness_lines(readiness(j, bot.cfg))
     report = "\n".join(lines)
     try:
         with j.tx() as c:

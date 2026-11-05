@@ -32,12 +32,13 @@ BANDS = [(1000.0, "hyper"), (5000.0, "growth"), (10000.0, "growth"), (50000.0, "
 BAND_RULES = [
     # risk_abs = max share of equity in one trade (owner, 2026-11-01: "as much as full up to $1k,
     # then scale back slightly as we grow to $5k"). In-trade stops still cap the loss per trade.
-    (1000.0,        {"daily_loss_pct": 0.0,  "max_positions": 1, "max_trades_per_day": 3, "risk_abs": 1.0}),   # hyper: one at a time, in-trade stops only
-    (5000.0,        {"daily_loss_pct": 0.15, "max_positions": 2, "max_trades_per_day": 4, "risk_abs": 0.75}),
+    (1000.0,        {"daily_loss_pct": 0.0,  "max_positions": 1, "max_trades_per_day": 5, "risk_abs": 1.0}),   # hyper: one at a time, in-trade stops only
+    (5000.0,        {"daily_loss_pct": 0.15, "max_positions": 2, "max_trades_per_day": 5, "risk_abs": 0.75}),
     (10000.0,       {"daily_loss_pct": 0.10, "max_positions": 3, "max_trades_per_day": 5}),
     (50000.0,       {"daily_loss_pct": 0.08, "max_positions": 3, "max_trades_per_day": 6}),
     (float("inf"),  {"daily_loss_pct": 0.06, "max_positions": 3, "max_trades_per_day": 8}),
 ]
+# Trades per day is a CAP, never a quota (owner, 2026-11-04): the bot never forces a trade to fill it.
 # Owner's rule (2026-11-01): "usually 3 with exception, up to 5". A position is one
 # symbol/contract; adding to it still counts as one. The exception is a one-tap
 # switch on the dashboard that lifts the cap to MAX_POSITIONS_HARD for the day.

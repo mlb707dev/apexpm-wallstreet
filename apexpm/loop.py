@@ -43,6 +43,22 @@ from .webhook import WebhookServer
 ET = ZoneInfo("America/New_York")
 
 
+def snapshot_bar_fields(ltf) -> dict:
+    """Current-bar and prior-bar fields for a MarketSnapshot, from an intraday frame (oldest → newest).
+    The backtester fills these; the live loop must fill the same ones or strategies that look one or
+    two bars back (and the volume confirmations) can never fire. Found as a live fault 2026-11-04."""
+    n = len(ltf)
+    last = ltf.iloc[-1]
+    c = float(last["close"])
+    out = {"bar_open": float(last["open"]) if "open" in ltf else c, "bar_high": float(last["high"]) if "high" in ltf else c,
+           "bar_low": float(last["low"]) if "low" in ltf else c,
+           "prev_close": float(ltf["close"].iloc[-2]) if n >= 2 else 0.0,
+           "prev2_close": float(ltf["close"].iloc[-3]) if n >= 3 else 0.0,
+           "bar_volume": float(last["volume"]) if "volume" in ltf else 0.0,
+           "vol_avg20": float(ltf["volume"].iloc[-21:-1].mean()) if "volume" in ltf and n > 21 else 0.0}
+    return out
+
+
 class Bot:
     def __init__(self, cfg: Config, journal: Optional[Journal] = None,
                  broker: Optional[Broker] = None, feed: Optional[DataFeed] = None):
@@ -212,8 +228,6 @@ class Bot:
         if len(ltf) > self.cfg.ema_slow + 2:
             prev_rl = ribbon_from_closes(ltf["close"].values[:-1], self.cfg.ema_fast, self.cfg.ema_mid, self.cfg.ema_slow)
             prev2_rl = ribbon_from_closes(ltf["close"].values[:-2], self.cfg.ema_fast, self.cfg.ema_mid, self.cfg.ema_slow)
-        last = ltf.iloc[-1]
-        vol_avg = float(ltf["volume"].iloc[-21:-1].mean()) if "volume" in ltf and len(ltf) > 21 else 0.0
 
         reached = self._reached.setdefault(symbol, {"long": 0.0, "short": 0.0})
         prev_reached = dict(reached)
@@ -227,10 +241,11 @@ class Bot:
         mins = (now_et.hour - 9) * 60 + now_et.minute - 30
         regime = "trend_up" if rh.state == "bull" else "trend_down" if rh.state == "bear" else "chop"
         self._momentum[symbol] = {"long": rl.fast > rl.mid, "short": rl.fast < rl.mid}
+        bars = snapshot_bar_fields(ltf)
         return MarketSnapshot(symbol=symbol, price=price, levels=lv, ribbon_ltf=rl, ribbon_htf=rh,
                               ltf_closes=list(ltf["close"].values), regime=regime,
                               reached_today=prev_reached, bar_index_today=max(0, mins) // self.cfg.bar_minutes,
-                              minutes_since_open=mins, prev_ribbon_ltf=prev_rl)
+                              minutes_since_open=mins, prev_ribbon_ltf=prev_rl, prev2_ribbon_ltf=prev2_rl, **bars)
 
     def scan_once(self, now_utc: Optional[datetime] = None) -> List[Signal]:
         now_utc = now_utc or datetime.now(timezone.utc)
@@ -258,6 +273,16 @@ class Bot:
             self.log.error("HALT: %s", ks)
             return []
         if self.state.halted:
+            return []
+        self._banger = self._banger_check(today)
+        if self._banger.halt:
+            self.journal.set_state(f"halted:{today}", "1")
+            self.state.halted, self.state.halt_reason = True, "banger_floor"
+            self.log.error("HALT: banger floor touched (day gain %.2f <= floor %.2f, peak %.2f)",
+                           self.state.realized_pnl_today, self._banger.floor, self._banger.peak_gain)
+            with self.journal.tx() as c:
+                c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (datetime('now'), 'portfolio', 'banger_halt', ?)",
+                          (f"gain {self.state.realized_pnl_today:.2f} floor {self._banger.floor:.2f} peak {self._banger.peak_gain:.2f}",))
             return []
         band = EffectiveConfig(self.cfg, get_profile(self.journal, self.state.equity), 1.0, self.state.equity)
         if band.max_daily_loss_pct > 0:
@@ -311,11 +336,42 @@ class Bot:
         except Exception as exc:  # noqa: BLE001
             self.log.warning("vix fetch failed: %s", exc)
 
+    def _banger_check(self, today: str) -> riskmod.BangerDecision:
+        """Day gain = realized + unrealized today; peak and active flag persist per session date."""
+        unreal = 0.0
+        try:
+            for t in self.journal.open_trades():
+                px = self.fast.prices.get(t["symbol"], 30) if self.fast else None
+                if px:
+                    sign = 1 if t["direction"] == "long" else -1
+                    mult = 100 if (t["asset"] or "stock") == "option" else 1
+                    unreal += (px - t["entry"]) * (1 if mult == 100 else sign) * t["qty"] * mult
+        except Exception:  # noqa: BLE001
+            unreal = 0.0
+        gain = self.state.realized_pnl_today + unreal
+        prev_peak = float(self.journal.get_state(f"banger_peak:{today}", "0") or 0)
+        was_active = self.journal.get_state(f"banger_active:{today}") == "1"
+        d = riskmod.banger_update(gain, self.state.starting_equity, prev_peak, was_active,
+                                  trigger_pct=self.cfg.banger_trigger_pct, floor_pct=self.cfg.banger_floor_pct,
+                                  size_mult=self.cfg.banger_size_mult, conviction_min=self.cfg.banger_conviction_min)
+        if d.peak_gain != prev_peak:
+            safe(self.journal.set_state, f"banger_peak:{today}", str(d.peak_gain))
+        if d.active and not was_active:
+            safe(self.journal.set_state, f"banger_active:{today}", "1")
+            self.log.warning("BANGER MODE: day gain %.2f >= %.0f%% of %.2f; floor %.2f, size x%.2f, conviction >= %d",
+                             gain, self.cfg.banger_trigger_pct * 100, self.state.starting_equity, d.floor, d.size_mult, d.conviction_min)
+            with self.journal.tx() as c:
+                c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (datetime('now'), 'portfolio', 'banger_mode_on', ?)",
+                          (f"gain {gain:.2f} of {self.state.starting_equity:.2f}",))
+        return d
+
     def _scan_symbol(self, symbol: str, today: str, now_utc: datetime, now_et: datetime, shadow_only: bool = False) -> List[Signal]:
         assert self.state is not None
         taken: List[Signal] = []
         ctx = self._day_ctx or cal.day_context(now_et.date(), self.cfg.symbols, self.journal)
-        ecfg = EffectiveConfig(self.cfg, get_profile(self.journal, self.state.equity), ctx.size_mult, self.state.equity,
+        banger = getattr(self, "_banger", None)
+        size_mult = ctx.size_mult * (banger.size_mult if banger and banger.active else 1.0)
+        ecfg = EffectiveConfig(self.cfg, get_profile(self.journal, self.state.equity), size_mult, self.state.equity,
                                positions_exception_on=positions_exception(self.journal))
         snap = self.snapshot(symbol, today, now_utc)
         if snap is None:
@@ -366,8 +422,10 @@ class Bot:
                 reject(symbol, strat.name, "research_observed", sig.direction,
                        json.dumps({"entry": sig.entry, "stop": sig.stop, "target": sig.target, "conviction": conv.score}))
                 continue
-            if conv.score < self.cfg.conviction_min:
-                reject(symbol, strat.name, f"low_conviction:{conv.score}", sig.direction, json.dumps(conv.factors))
+            conv_min = max(self.cfg.conviction_min, banger.conviction_min if banger and banger.active else 0)
+            if conv.score < conv_min:
+                reject(symbol, strat.name, f"low_conviction:{conv.score}" + (":banger" if banger and banger.active else ""),
+                       sig.direction, json.dumps(conv.factors))
                 continue
             gates = riskmod.entry_gates(self.state, symbol=symbol, direction=sig.direction, now=now_utc,
                                         last_stop_iso=self.journal.last_stop_time(symbol, sig.direction), cfg=ecfg)

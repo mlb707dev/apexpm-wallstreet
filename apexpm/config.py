@@ -98,7 +98,7 @@ class Config:
     # Risk
     kill_dd_pct: float = field(default_factory=lambda: _f("KILL_DD_PCT", 0.05))
     max_daily_loss: float = field(default_factory=lambda: _f("MAX_DAILY_LOSS", 200.0))
-    max_trades_per_day: int = field(default_factory=lambda: _i("MAX_TRADES_PER_DAY", 4))
+    max_trades_per_day: int = field(default_factory=lambda: _i("MAX_TRADES_PER_DAY", 5))
     max_positions: int = field(default_factory=lambda: _i("MAX_POSITIONS", 3))
     stop_cooldown_min: int = field(default_factory=lambda: _i("STOP_COOLDOWN_MIN", 30))
     live_abort_delay_sec: int = field(default_factory=lambda: _i("LIVE_ABORT_DELAY_SEC", 10))
@@ -148,6 +148,17 @@ class Config:
     opt_max_dte: int = field(default_factory=lambda: _i("OPT_MAX_DTE", 2))
     opt_flat_before_close_min: int = field(default_factory=lambda: _i("OPT_FLAT_BEFORE_CLOSE_MIN", 20))
 
+    # Banger rule (owner, 2026-11-04): day gain >= BANGER_TRIGGER_PCT x session-start equity -> defensive mode:
+    # floor at BANGER_FLOOR_PCT of the peak day gain (halt for the day if touched), size x BANGER_SIZE_MULT,
+    # entries only at conviction >= BANGER_CONVICTION_MIN. BANGER_TRIGGER_PCT=0 disables.
+    banger_trigger_pct: float = field(default_factory=lambda: _f("BANGER_TRIGGER_PCT", 1.0))
+    banger_floor_pct: float = field(default_factory=lambda: _f("BANGER_FLOOR_PCT", 0.8))
+    banger_size_mult: float = field(default_factory=lambda: _f("BANGER_SIZE_MULT", 0.25))
+    banger_conviction_min: int = field(default_factory=lambda: _i("BANGER_CONVICTION_MIN", 3))
+    # Go-live gate (target 2026-11-18): all must pass before live funding
+    ready_min_trades: int = field(default_factory=lambda: _i("READY_MIN_TRADES", 30))
+    ready_max_dd_pct: float = field(default_factory=lambda: _f("READY_MAX_DD_PCT", 0.30))
+    ready_target_date: str = field(default_factory=lambda: _s("READY_TARGET_DATE", "2026-11-18"))
     # Conviction: confirmations are RECORDED on every signal; CONVICTION_MIN=0 means soft (never blocks)
     conviction_min: int = field(default_factory=lambda: _i("CONVICTION_MIN", 0))
 

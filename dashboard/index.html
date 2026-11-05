@@ -99,7 +99,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 17</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 19</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -223,6 +223,8 @@ function renderBot(b){
     <div class="row"><span>Paper book</span><b style="white-space:normal;text-align:right">${(b.books&&b.books.paper||[]).join(', ')||'none'}</b></div>
     <div class="row"><span>Shadow book (lab + quarantine)</span><b style="white-space:normal;text-align:right">${(b.books&&b.books.shadow||[]).join(', ')||'none'}</b></div>
     <div class="row"><span>Decisions waiting</span><b class="${b.pending_decisions?'neg':''}">${b.pending_decisions||0}</b></div>
+    <div class="row"><span>Banger mode</span><b>${b.banger&&b.banger.active?'<span class="neg">ON · peak '+money(b.banger.peak)+' · floor '+(b.banger.floor_pct*100).toFixed(0)+'%</span>':'off (arms at +'+((b.banger?b.banger.trigger_pct:1)*100).toFixed(0)+'% day gain)'}</b></div>
+    <div class="row"><span>Go-live gate (${b.readiness?b.readiness.target_date:''})</span><b class="${b.readiness&&b.readiness.ready?'pos':'neg'}">${b.readiness?(b.readiness.ready?'READY':'NOT READY · '+b.readiness.checks.filter(c=>!c.ok).map(c=>c.name+' ('+c.value+')').join(', ')):'—'}</b></div>
     <div class="row"><span>Kill switch</span><b>${b.halted?'<span class="neg">HALTED</span>':'armed · '+(b.effective.kill_dd_pct*100).toFixed(0)+'% DD'}</b></div>
     <div class="row"><span>New entries</span><b>${b.entries_paused?'<span class="neg">PAUSED</span>':'<span class="pos">open</span>'}</b></div>
     <div class="row"><span>Position cap</span><b>${b.positions_exception?'<span class="neg">EXCEPTION · up to '+b.max_positions_hard+' today</span>':(b.effective.max_positions+' (normal)')}</b></div>
@@ -402,18 +404,25 @@ async function loadStrategies(){
   const ss = await api('/api/strategies');
   $('#stratlist').innerHTML = ss.map(s=>{
     const st = s.stats;
-    const stats = st ? `<div class="kv" style="margin-top:8px"><div><div class="k">Trades</div><div class="v sm">${st.trades}</div></div><div><div class="k">Win</div><div class="v sm">${Math.round(st.win_rate*100)}%</div></div><div><div class="k">Exp</div><div class="v sm ${cls(st.expectancy_r)}">${(st.expectancy_r>=0?'+':'')+fmt(st.expectancy_r)}R</div></div></div>` : '<p>No closed trades yet.</p>';
+    const stats = st ? `<div class="kv" style="margin-top:8px"><div><div class="k">Trades</div><div class="v sm">${st.trades}</div></div><div><div class="k">Win</div><div class="v sm">${Math.round(st.win_rate*100)}%</div></div><div><div class="k">Exp</div><div class="v sm ${cls(st.expectancy_r)}">${(st.expectancy_r>=0?'+':'')+fmt(st.expectancy_r)}R</div></div><div><div class="k">P&amp;L (all)</div><div class="v sm ${cls(st.pnl)}">${money(st.pnl)}</div></div><div><div class="k">PF</div><div class="v sm">${st.profit_factor==null?'—':(st.profit_factor>99?'∞':fmt(st.profit_factor))}</div></div><div><div class="k">Max DD</div><div class="v sm">${fmt(st.max_dd_r)}R</div></div></div>` : '<p>No closed trades yet.</p>';
+    const lr = s.live_readiness; const lrTxt = lr ? (lr.ready ? '<span class="pos">live bar met</span>' : 'live bar: '+lr.checks.filter(c=>!c.ok).map(c=>c.name+' ('+c.value+')').join(' · ')) : '';
     const act = (s.status==='suspended'||s.status==='research') ? `<button class="btn ok" onclick="setStatus('${s.name}','paper')">Promote to paper</button>` : `<button class="btn warn" onclick="setStatus('${s.name}','suspended')">Suspend</button>`;
-    return `<div class="card" style="background:var(--bg3)"><h3>${s.name}<span class="chip ${s.status}">${s.label||s.status} · ${s.book}</span></h3><p>${s.description}</p><p class="mono">mode ${s.mode} · ${s.symbols.join(', ')}</p>${stats}<div class="actions">${act}<button class="btn" onclick="setStatus('${s.name}','research')">To research</button></div></div>`;
+    return `<div class="card" style="background:var(--bg3)"><h3>${s.name}<span class="chip ${s.status}">${s.label||s.status} · ${s.book}</span></h3><p>${s.description}</p><p class="mono">mode ${s.mode} · ${s.symbols.join(', ')}</p>${stats}<p class="ago" style="margin-top:6px">${lrTxt}</p><div class="actions">${act}<button class="btn" onclick="setStatus('${s.name}','research')">To research</button></div></div>`;
   }).join('');
 }
 async function loadSettings(){
   $('#s_api').textContent = LS.api || '(this server)';
 }
 async function setStatus(name, status){
-  const note = await ask((status==='paper'?'Promote ':status==='suspended'?'Quarantine ':'Move to lab: ')+name, status==='paper'?'Paper book: real paper orders from the next scan.':status==='suspended'?'Shadow book: journaled, no orders.':'Shadow book for tuning.');
+  let confirm = '';
+  if(status==='paper'){
+    confirm = await ask('Promote '+name+' to PAPER', 'Real paper orders from the next scan. Type the word promote to continue.');
+    if(confirm===null) return;
+    if((confirm||'').trim().toLowerCase()!=='promote'){ toast('Not promoted: type promote to confirm'); return; }
+  }
+  const note = await ask((status==='paper'?'Reason for promoting ':status==='suspended'?'Quarantine ':'Move to lab: ')+name, status==='paper'?'Required: the evidence (backtest result, review) behind this promotion.':status==='suspended'?'Shadow book: journaled, no orders.':'Shadow book for tuning.');
   if(note===null) return;
-  const r = await api('/api/strategy/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,status,note:note||''})});
+  const r = await api('/api/strategy/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,status,note:note||'',confirm})});
   if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadStrategies().catch(showErr); loadHome().catch(()=>{});
 }
 
