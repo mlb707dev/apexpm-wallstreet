@@ -27,8 +27,8 @@ def test_rejections_and_state():
     j.reject("SPY", "example", "ribbon_ltf_disagrees")
     j.reject("SPY", "example", "ribbon_ltf_disagrees")
     j.reject("SPY", "example", "rr_too_low")
-    from apexpm.db import utcnow
-    hist = j.rejection_histogram(utcnow()[:10])
+    from apexpm.db import et_date, utcnow
+    hist = j.rejection_histogram(et_date())
     assert hist == {"ribbon_ltf_disagrees": 2, "rr_too_low": 1}
     j.set_state("k", "v")
     assert j.get_state("k") == "v"
