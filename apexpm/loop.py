@@ -260,6 +260,7 @@ class Bot:
 
         acct = self.broker.account()
         self.state.equity = acct.equity
+        self._buying_power = float(getattr(acct, "buying_power", 0.0) or 0.0)
         # Account reset detection: equity far from the anchor with no trades closed today
         # is a paper reset (or a deposit/withdrawal), not a drawdown. Re-anchor instead of halting.
         anchor = self.state.starting_equity
@@ -486,6 +487,18 @@ class Bot:
                 qty = round(qty, 3) if self.cfg.fractional_shares else float(int(qty))
                 sz = sz.__class__(qty, sz.dollar_risk * cm, sz.kelly_full, sz.kelly_used, sz.vol_scale, qty * snap.price)
                 sig.context["confluence_mult"] = cm
+            # buying power: a second position in a cash account can only use what the first left.
+            # Size down to it rather than let the broker reject the order (a wasted signal).
+            bp = float(getattr(self, "_buying_power", 0.0) or 0.0)
+            if bp > 0 and sz.qty * snap.price > bp * 0.98:
+                qty = bp * 0.98 / snap.price
+                qty = round(qty, 3) if self.cfg.fractional_shares else float(int(qty))
+                if qty * snap.price < self.cfg.min_notional or qty <= 0:
+                    reject(symbol, strat.name, "size:buying_power", sig.direction, json.dumps({"buying_power": bp, "wanted": sz.notional}))
+                    continue
+                self.log.info("%s sized down to buying power: %.3f -> %.3f shares (bp %.2f)", symbol, sz.qty, qty, bp)
+                sz = sz.__class__(qty, sz.dollar_risk * qty / sz.qty, sz.kelly_full, sz.kelly_used, sz.vol_scale, qty * snap.price)
+                sig.context["sized_to_buying_power"] = True
             if sig.direction == "short" and self.cfg.fractional_shares and float(sz.qty) != int(sz.qty):
                 reject(symbol, strat.name, "fractional_short_not_allowed", sig.direction)
                 continue
