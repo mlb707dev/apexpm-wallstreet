@@ -87,6 +87,32 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
 .alert b{font-family:'JetBrains Mono',monospace;white-space:nowrap}
 .err{background:#2a0a14;border:1px solid #4a0f1f;color:var(--red);padding:10px;border-radius:10px;font-size:12px;margin:10px 0}
 .ago{color:var(--dim);font-size:11px}
+.tier{margin:18px 0 8px}.tier h2{font-family:'DM Sans',sans-serif;font-size:16px;color:#fff;letter-spacing:0;margin:0}
+.tier p{font-size:12px;color:var(--dim);margin:2px 0 8px}
+.sc{background:var(--bg3);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer}
+.sc:active{background:#1a2340}.sc .nm{font-size:15px;font-weight:700;color:#fff;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.sc .desc{font-size:12px;color:var(--dim);margin:3px 0 10px;white-space:normal}
+.sc .big{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.sc .big .k{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}.sc .big .v{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:#fff;margin-top:2px}
+.sc .ext{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.sc .ext div{background:var(--bg2);border-radius:10px;padding:8px 10px;font-size:12px;white-space:normal}
+.sc .ext b{font-family:'JetBrains Mono',monospace;font-size:13px}
+.sc .ext .k{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}
+.sc .ext .d{color:var(--dim);font-size:11px}
+.trend{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:12px;color:var(--dim);white-space:normal;line-height:1.5}
+.trend svg{flex:0 0 auto}
+.up{color:var(--green)}.dn{color:var(--red)}.flat{color:var(--amber)}
+.sc .more{margin-top:10px;font-size:12px;color:var(--sky);font-weight:600}
+.filters{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:10px 0}
+.filters select{width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg3);color:#fff;font-family:'DM Sans',sans-serif;font-size:13px}
+.filters label{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:3px}
+.back{background:none;border:0;color:var(--sky);font-family:'DM Sans',sans-serif;font-weight:600;font-size:13px;padding:0;margin-bottom:10px}
+.tr{background:var(--bg3);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;font-size:12px;white-space:normal}
+.tr .h{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:#fff;font-weight:600}
+.tr .h b{font-family:'JetBrains Mono',monospace;font-size:14px}
+.tr .m{color:var(--dim);margin-top:4px;line-height:1.5}
+.tr .m span{color:var(--text)}
+@media(min-width:700px){.sc .big{grid-template-columns:repeat(6,1fr)}.filters{grid-template-columns:repeat(4,1fr)}}
 </style>
 </head>
 <body>
@@ -99,7 +125,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 20</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 21</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -186,6 +212,14 @@ const LS = { get api(){ try{return localStorage.getItem('apexpm_api')||''}catch(
 const fmt = (n,d=2) => n==null ? '—' : Number(n).toFixed(d);
 const money = n => n==null ? '—' : (n<0?'-':'') + '$' + Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 const cls = n => n==null ? '' : n>0 ? 'pos' : n<0 ? 'neg' : '';
+const when = iso => { if(!iso) return '—'; const d = new Date(iso); if(isNaN(d)) return String(iso).slice(0,16).replace('T',' '); return d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); };
+const whenDay = iso => { if(!iso) return '—'; const d = new Date(iso); return isNaN(d) ? String(iso).slice(0,10) : d.toLocaleDateString(undefined,{month:'short',day:'numeric'}); };
+const nice = n => (n||'').replace(/_t\d{6}[a-z]$/,' (tuned)').replace(/_v(\d+)$/,' v$1').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+const pct = n => n==null ? '—' : (n>0?'+':'') + Number(n).toFixed(1) + '%';
+const signed = (n,d=2) => n==null ? '—' : (n>0?'+':'') + Number(n).toFixed(d);
+const WHY = {target:'Hit its target', runner_target:'Runner hit its target', stop:'Stopped out', initial_stop:'Stopped out', under_stop:'Fell through the stop', trail_stop:'Trailing stop', breakeven_stop:'Stopped at breakeven', max_hold:'Time ran out', flat_by:'Closed before the cutoff', expiry_cutoff:'Closed before expiry', broker_no_position:'Closed at the broker', persisted:'Carried over'};
+const why = r => r==null ? '—' : (WHY[r] || String(r).replace(/_/g,' '));
+const SIDE = {long:'Buy', short:'Sell short'};
 const ago = s => s==null ? '—' : s<60 ? s+'s ago' : s<3600 ? Math.round(s/60)+'m ago' : Math.round(s/3600)+'h ago';
 let chart;
 
@@ -371,22 +405,116 @@ async function loadPositions(){
 async function loadActivity(){
   const ts = await api('/api/trades');
   $('#trades').innerHTML = ts.length ? '<table><tr><th>#</th><th>Opened</th><th>Setup</th><th>Dir</th><th>Qty</th><th>Entry</th><th>Stop</th><th>Target</th><th>Exit</th><th>Reason</th><th>R</th><th>P&L</th><th>Mode</th><th>Status</th></tr>' +
-    ts.map(t=>`<tr><td>${t.id}</td><td>${t.opened_at.slice(5,16).replace('T',' ')}</td><td>${t.setup}${t.contract?'<br><span class="ago">'+t.contract+'</span>':''}${greeks(t)}</td><td>${t.direction}</td><td>${t.qty}</td><td>${fmt(t.entry)}</td><td>${fmt(t.stop)}</td><td>${fmt(t.target)}</td><td>${fmt(t.exit_price)}</td><td>${t.exit_reason||''}</td><td class="${cls(t.rr_realized)}">${t.rr_realized==null?'—':fmt(t.rr_realized)}</td><td class="${cls(t.pnl)}">${t.pnl==null?'—':money(t.pnl)}</td><td>${t.mode}</td><td>${t.status}</td></tr>`).join('') + '</table>' : '<div class="empty">No trades journaled yet.</div>';
+    ts.map(t=>`<tr><td>${t.id}</td><td>${when(t.opened_at)}</td><td>${t.setup}${t.contract?'<br><span class="ago">'+t.contract+'</span>':''}${greeks(t)}</td><td>${t.direction}</td><td>${t.qty}</td><td>${fmt(t.entry)}</td><td>${fmt(t.stop)}</td><td>${fmt(t.target)}</td><td>${fmt(t.exit_price)}</td><td>${t.exit_reason||''}</td><td class="${cls(t.rr_realized)}">${t.rr_realized==null?'—':fmt(t.rr_realized)}</td><td class="${cls(t.pnl)}">${t.pnl==null?'—':money(t.pnl)}</td><td>${t.mode}</td><td>${t.status}</td></tr>`).join('') + '</table>' : '<div class="empty">No trades journaled yet.</div>';
   const rj = await api('/api/rejections');
   $('#rej').innerHTML = rj.length ? '<table><tr><th>Date</th><th>Setup</th><th>Reason</th><th>N</th></tr>' + rj.map(r=>`<tr><td>${r.date}</td><td>${r.setup}</td><td>${r.reason}</td><td>${r.n}</td></tr>`).join('') + '</table>' : '<div class="empty">No rejections in the last 7 days.</div>';
   const ev = await api('/api/events');
-  $('#events').innerHTML = ev.length ? '<table><tr><th>When</th><th>Who</th><th>Event</th><th>Detail</th></tr>' + ev.map(e=>`<tr><td>${(e.ts||'').slice(0,16).replace('T',' ')}</td><td>${e.name}</td><td>${e.event}</td><td style="white-space:normal">${e.detail||''}</td></tr>`).join('') + '</table>' : '<div class="empty">No events.</div>';
+  $('#events').innerHTML = ev.length ? '<table><tr><th>When</th><th>Who</th><th>Event</th><th>Detail</th></tr>' + ev.map(e=>`<tr><td>${when(e.ts)}</td><td>${e.name}</td><td>${e.event}</td><td style="white-space:normal">${e.detail||''}</td></tr>`).join('') + '</table>' : '<div class="empty">No events.</div>';
 }
 
-function tbl(title, rows){
-  if(!rows.length) return '';
-  return `<div class="card tbl"><h3>${title}</h3><table><tr><th>Key</th><th>N</th><th>Win</th><th>Exp R</th><th>Total R</th><th>PF</th></tr>` +
-    rows.map(r=>`<tr><td>${r.key}</td><td>${r.n}</td><td>${Math.round(r.win*100)}%</td><td class="${cls(r.exp_r)}">${fmt(r.exp_r,3)}</td><td class="${cls(r.total_r)}">${fmt(r.total_r,2)}</td><td>${r.pf==null?'∞':fmt(r.pf,2)}</td></tr>`).join('') + '</table></div>';
+const GROUP_LABELS = {by_strategy:['By strategy','Strategy'], by_direction:['Buys vs. short sales','Side'], by_hour:['By time of day (New York)','Hour'], by_weekday:['By day of the week','Day'], by_exit:['How trades ended','Ending'], by_regime:['By market mood','Mood'], by_conviction:['By confirmations at entry','Confirmations'], by_asset_class:['Stocks, options, crypto','Type'], by_symbol:['By ticker','Ticker'], by_strategy_symbol:['Strategy and ticker','Pair'], by_entry_delta:['Options: delta when bought','Delta'], by_entry_iv:['Options: implied volatility when bought','IV'], by_entry_vix:['By market fear (VIX) at entry','VIX']};
+function keyLabel(group, k){
+  if(group==='by_hour'){ const h=parseInt(k,10); if(isNaN(h)) return k; return (h%12||12)+(h<12?' AM':' PM'); }
+  if(group==='by_direction') return SIDE[k]||k;
+  if(group==='by_exit') return why(k);
+  if(group==='by_strategy') return nice(k);
+  if(group==='by_strategy_symbol') return k.split(' · ').map((x,i)=>i?x:nice(x)).join(' · ');
+  return k;
 }
+function tbl(group, rows){
+  rows = (rows||[]).filter(r=>r.key!=='?' && !(group.startsWith('by_entry_') && (r.key==='stock'||r.key==='n/a')));
+  if(!rows.length) return '';
+  const [title, col] = GROUP_LABELS[group] || [group, 'Group'];
+  return `<div class="card tbl"><h3>${title}</h3><table><tr><th>${col}</th><th>Trades</th><th>Won</th><th>Avg per trade</th><th>Total</th></tr>` +
+    rows.map(r=>`<tr><td style="white-space:normal">${keyLabel(group, r.key)}</td><td>${r.n}</td><td>${Math.round(r.win*100)}%</td><td class="${cls(r.exp_r)}">${signed(r.exp_r)}× risk</td><td class="${cls(r.total_r)}">${signed(r.total_r,1)}× risk</td></tr>`).join('') + '</table></div>';
+}
+function spark(curve, key){
+  const pts = (curve||[]).map(c=>c[key]); if(pts.length<2) return '';
+  const w=120,h=34,mn=Math.min(0,...pts),mx=Math.max(0,...pts),rg=(mx-mn)||1;
+  const xy = pts.map((v,i)=>[(i/(pts.length-1))*w, h-((v-mn)/rg)*h]);
+  const zero = h-((0-mn)/rg)*h; const last = pts[pts.length-1];
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><line x1="0" y1="${zero}" x2="${w}" y2="${zero}" stroke="#2a3558" stroke-width="1"/><polyline fill="none" stroke="${last>=0?'var(--green)':'var(--red)'}" stroke-width="2" points="${xy.map(p=>p.map(v=>v.toFixed(1)).join(',')).join(' ')}"/></svg>`;
+}
+const TREND_WORD = {up:['▲','improving','up'], down:['▼','slipping','dn'], flat:['■','steady','flat'], 'n/a':['','',''] };
+function trendTxt(s){
+  if(s.trend_attain==='n/a' && s.trend_exp==='n/a') return s.n ? `Needs ${Math.max(0, 20 - s.n)} more trades to show a trend.` : '';
+  const a = TREND_WORD[s.trend_attain]||TREND_WORD['n/a'], e = TREND_WORD[s.trend_exp]||TREND_WORD['n/a'];
+  return `Last 10 trades: hit target ${Math.round((s.last_roll_attain||0)*100)}% <span class="${a[2]}">${a[0]} ${a[1]}</span> · avg ${signed(s.last_roll_exp_r)}× risk <span class="${e[2]}">${e[0]} ${e[1]}</span>`;
+}
+function extreme(x, label){
+  if(!x || (!x.usd && !x.pct)) return `<div><div class="k">${label}</div><span class="d">none yet</span></div>`;
+  const u = x.usd || x.pct, p = x.pct || x.usd;
+  const same = u.id === p.id;
+  return `<div><div class="k">${label}</div><b class="${cls(u.pnl)}">${money(u.pnl)}</b> <span class="d">(${pct(u.pnl_pct)}) ${u.symbol}, ${whenDay(u.closed_at)}</span>` +
+    (same ? '' : `<br><b class="${cls(p.pnl)}">${pct(p.pnl_pct)}</b> <span class="d">(${money(p.pnl)}) ${p.symbol}, ${whenDay(p.closed_at)} — biggest by percent</span>`) + '</div>';
+}
+function stratCard(s){
+  const open = s.open ? `<span class="chip paper">${s.open} open now</span>` : '';
+  const other = Object.entries(s.n_by_mode||{}).filter(([m])=>m!==s.mode).map(([m,n])=>`${n} earlier ${m==='PAPER'?'paper':m==='LIVE'?'live':'lab'} trade${n===1?'':'s'}`).join(', ');
+  const body = s.n ? `<div class="big">
+      <div><div class="k">Net result</div><div class="v ${cls(s.pnl)}">${money(s.pnl)}</div></div>
+      <div><div class="k">Trades</div><div class="v">${s.n}</div></div>
+      <div><div class="k">Won</div><div class="v">${Math.round(s.win_rate*100)}%</div></div>
+      <div><div class="k">Hit target</div><div class="v">${Math.round(s.attainment*100)}%</div></div>
+      <div><div class="k">Avg vs. risk</div><div class="v ${cls(s.exp_r)}">${signed(s.exp_r)}×</div></div>
+      <div><div class="k">Gave it back</div><div class="v ${s.gave_back?'neg':''}">${s.gave_back}</div></div>
+    </div>
+    <div class="ext">${extreme(s.biggest_win,'Biggest win')}${extreme(s.biggest_loss,'Biggest loss')}</div>
+    <div class="trend">${spark(s.curve,'cum_pnl')}<div>${trendTxt(s)}${s.expected_r!=null && s.drift_r!=null ? `<br>Backtest promised ${signed(s.expected_r)}× risk per trade; running ${signed(s.drift_r)}× vs. that.` : ''}</div></div>`
+    : `<p class="empty">No closed trades yet in this book${other?` (${other})`:''}.</p>`;
+  return `<div class="sc" onclick="openStrat('${s.name}')"><div class="nm"><span>${nice(s.name)}</span>${open}<span class="chip ${s.status}">${s.label}</span></div><div class="desc">${s.description} · ${s.symbols.join(', ')}</div>${body}<div class="more">See every trade ›</div></div>`;
+}
+const TIER_TEXT = {active:['Trading real money','Strategies that place orders on the live account.','Nothing is trading real money yet. Strategies earn their way here by passing the go-live bar on the practice account.'],
+                   paper:['Practice account (paper)','Strategies placing orders on the paper account. Real prices, pretend money. This is what the go-live decision is judged on.','No strategy is in the practice book.'],
+                   lab:['In the lab','Strategies being watched only. They log what they would have done, but never place an order.','The lab is empty.']};
+let ANA_ALL = false;
 async function loadAnalytics(){
-  const a = await api('/api/analytics');
-  $('#ana').innerHTML = a.n ? tbl('By strategy', a.by_strategy) + tbl('By direction', a.by_direction) + tbl('By hour (ET)', a.by_hour) + tbl('By weekday', a.by_weekday) + tbl('By exit reason', a.by_exit) + tbl('By regime', a.by_regime) + tbl('By conviction (confirmations at entry)', a.by_conviction||[]) + tbl('By asset class', a.by_asset_class||[]) + tbl('By symbol', a.by_symbol||[]) + tbl('By strategy × symbol', a.by_strategy_symbol||[]) + tbl('Options: by delta at purchase', a.by_entry_delta||[]) + tbl('Options: by IV at purchase', a.by_entry_iv||[]) + tbl('By VIX at entry', a.by_entry_vix||[])
-    : '<div class="card"><div class="empty">Analytics appear once trades close.</div></div>';
+  const el = $('#ana');
+  if(el.dataset.open){ return openStrat(el.dataset.open, true); }
+  const [t, a] = await Promise.all([api('/api/strategy/analytics' + (ANA_ALL?'?all=1':'')), api('/api/analytics')]);
+  const scope = t.since ? `<div class="seg" style="grid-template-columns:1fr 1fr"><button class="${ANA_ALL?'':'on'}" onclick="ANA_ALL=false;loadAnalytics()">Since the fresh start (${whenDay(t.since)})</button><button class="${ANA_ALL?'on':''}" onclick="ANA_ALL=true;loadAnalytics()">All time</button></div>` : '';
+  const tiers = t.tiers.map(tier=>{ const [h, sub, empty] = TIER_TEXT[tier.tier];
+    const tot = tier.strategies.some(s=>s.n) ? `<span class="${cls(tier.pnl)}" style="font-family:'JetBrains Mono',monospace;font-size:13px">${money(tier.pnl)} over ${tier.n} trade${tier.n===1?'':'s'}</span>` : '';
+    return `<div class="tier"><h2>${h}</h2><p>${tot ? tot + ' · ' : ''}${sub}</p>${tier.strategies.length ? tier.strategies.map(stratCard).join('') : `<div class="empty">${empty}</div>`}</div>`; }).join('');
+  const groups = a.n ? `<div class="tier"><h2>Where the results come from</h2><p>All closed trades grouped different ways. "× risk" means a multiple of what the trade risked: +1.0× is a full winner, −1.0× is a full stop.</p></div>` +
+    ['by_exit','by_hour','by_weekday','by_direction','by_symbol','by_strategy_symbol','by_regime','by_conviction','by_asset_class','by_entry_delta','by_entry_iv','by_entry_vix'].map(g=>tbl(g, a[g])).join('') : '';
+  el.innerHTML = scope + tiers + groups;
+}
+let DRILL = null;
+async function openStrat(name, keep){
+  const el = $('#ana'); el.dataset.open = name;
+  const d = await api('/api/strategy/trades?name=' + encodeURIComponent(name) + '&limit=1000');
+  DRILL = d; if(!keep) window.scrollTo(0,0);
+  const s = d.summary;
+  const opt = (arr, labelFn) => '<option value="">All</option>' + arr.map(v=>`<option value="${v}">${labelFn?labelFn(v):v}</option>`).join('');
+  el.innerHTML = `<button class="back" onclick="closeStrat()">‹ Back to all strategies</button>
+    <div class="card"><h3>${nice(name)} <span class="ago">${d.trades.length} trade${d.trades.length===1?'':'s'} on record</span></h3>
+    ${s.n ? `<div class="kv"><div><div class="k">Net result</div><div class="v sm ${cls(s.pnl)}">${money(s.pnl)}</div></div><div><div class="k">Won</div><div class="v sm">${Math.round(s.win_rate*100)}% of ${s.n}</div></div><div><div class="k">Hit target</div><div class="v sm">${Math.round(s.attainment*100)}%</div></div></div>
+    <div class="trend">${spark(s.curve,'cum_pnl')}<div>${trendTxt(s)}</div></div>` : '<p class="empty">No closed trades yet.</p>'}
+    </div>
+    <div class="filters">
+      <div><label>Ticker</label><select id="f_sym" onchange="drawDrill()">${opt(d.symbols)}</select></div>
+      <div><label>Result</label><select id="f_res" onchange="drawDrill()"><option value="">All</option><option value="win">Winners</option><option value="loss">Losers</option><option value="open">Still open</option></select></div>
+      <div><label>How it ended</label><select id="f_why" onchange="drawDrill()">${opt(d.exit_reasons, why)}</select></div>
+      <div><label>Account</label><select id="f_mode" onchange="drawDrill()">${opt(d.modes, m=>({PAPER:'Practice (paper)',LIVE:'Real money',DRY_RUN:'Lab (watch only)'})[m]||m)}</select></div>
+    </div>
+    <div id="drill"></div>`;
+  drawDrill();
+}
+function closeStrat(){ delete $('#ana').dataset.open; loadAnalytics(); }
+function drawDrill(){
+  if(!DRILL) return;
+  const sym=$('#f_sym').value, res=$('#f_res').value, w=$('#f_why').value, mode=$('#f_mode').value;
+  let rows = DRILL.trades.filter(t=>(!sym||t.symbol===sym)&&(!w||t.exit_reason===w)&&(!mode||t.mode===mode));
+  if(res==='win') rows = rows.filter(t=>t.pnl>0); else if(res==='loss') rows = rows.filter(t=>t.status==='closed'&&t.pnl<=0); else if(res==='open') rows = rows.filter(t=>t.status!=='closed');
+  const net = rows.reduce((a,t)=>a+(t.pnl||0),0), closed = rows.filter(t=>t.status==='closed').length;
+  $('#drill').innerHTML = `<p class="ago" style="margin-bottom:8px">${rows.length} shown · ${closed} closed · net <span class="${cls(net)}">${money(net)}</span></p>` + (rows.length ? rows.map(t=>{
+    const isOpen = t.status!=='closed';
+    const head = isOpen ? `<span class="chip paper">${t.status}</span>` : `<b class="${cls(t.pnl)}">${money(t.pnl)}</b> <span class="ago">${pct(t.pnl_pct)}</span>`;
+    const flag = t.reached && !t.attained ? ' <span class="neg">reached the target, then gave it back</span>' : '';
+    return `<div class="tr"><div class="h"><span>${t.symbol} · ${SIDE[t.direction]||t.direction} ${t.qty} ${t.asset==='option'?'contract':'share'}${t.qty==1?'':'s'}${t.contract?' · '+t.contract:''}</span>${head}</div>
+      <div class="m">Opened <span>${when(t.opened_at)}</span> at <span>${fmt(t.entry)}</span>${isOpen?'':` · closed <span>${when(t.closed_at)}</span> at <span>${fmt(t.exit_price)}</span> · <span>${why(t.exit_reason)}</span>${flag}`}<br>
+      Stop <span>${fmt(t.stop)}</span> · target <span>${fmt(t.target)}</span>${t.rr_realized!=null?` · result <span class="${cls(t.rr_realized)}">${signed(t.rr_realized)}× risk</span>`:''}${t.held_min!=null?` · held <span>${t.held_min<60?t.held_min+' min':(t.held_min/60).toFixed(1)+' h'}</span>`:''}${t.conviction!=null?` · <span>${t.conviction}</span> confirmations`:''}${t.regime?` · market <span>${t.regime}</span>`:''}</div></div>`; }).join('') : '<div class="empty">Nothing matches those filters.</div>');
 }
 
 async function loadReports(){

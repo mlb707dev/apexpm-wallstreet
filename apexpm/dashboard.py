@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import math
 import logging
 import mimetypes
 import os
@@ -404,6 +405,17 @@ class Api:
         from .readiness import readiness
         return readiness(self.j, self.cfg)
 
+    def strategy_analytics(self, since_reset: bool = True) -> Dict[str, Any]:
+        """Three tiers (active = live book, paper, lab = shadow) with attainment trend and extremes per strategy."""
+        from . import strategy_analytics as sa
+        variantsmod.register_all(self.reg, self.j)
+        return sa.tiers(self.j, self.reg, since_reset=since_reset)
+
+    def strategy_trades(self, name: str, mode: str = "", limit: int = 500, since_reset: bool = False) -> Dict[str, Any]:
+        """The drill-down: one strategy's trade history with derived fields and filters."""
+        from . import strategy_analytics as sa
+        return sa.trades_for(self.j, name, mode=mode, limit=limit, since_reset=since_reset)
+
     def audit(self) -> Dict[str, Any]:
         """Auditor pass: book vs evidence, giveback, and any demotion proposals it files (owner decides)."""
         from .auditor import audit
@@ -504,6 +516,16 @@ button{width:100%;padding:10px;border-radius:8px;border:0;background:#38bdf8;col
 <button>Sign in</button></form></body></html>"""
 
 
+def _finite(o):
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: _finite(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_finite(v) for v in o]
+    return o
+
+
 def make_handler(api: Api, token: str = ""):
     class Handler(BaseHTTPRequestHandler):
         _set_cookie: Optional[str] = None
@@ -525,7 +547,9 @@ def make_handler(api: Api, token: str = ""):
             self.wfile.write(body)
 
         def _json(self, obj: Any, code: int = 200) -> None:
-            self._send(code, json.dumps(obj, default=str).encode())
+            # Browsers reject Infinity/NaN in JSON (a strategy with wins and no losses has an infinite
+            # profit factor); send null instead so one such number cannot blank the whole page.
+            self._send(code, json.dumps(_finite(obj), default=str).encode())
 
         def _authed(self) -> bool:
             if not token:
@@ -581,6 +605,17 @@ def make_handler(api: Api, token: str = ""):
                 from urllib.parse import parse_qs
                 d = parse_qs(urlparse(self.path).query).get("date", [""])[0]
                 return self._json(api.rejection_rows(d or et_date()))
+            if path in ("/api/strategy/analytics", "/api/strategy/trades"):
+                from urllib.parse import parse_qs
+                qs = parse_qs(urlparse(self.path).query)
+                g = lambda k, d="": qs.get(k, [d])[0]  # noqa: E731
+                try:
+                    if path == "/api/strategy/analytics":
+                        return self._json(api.strategy_analytics(since_reset=g("all", "0") != "1"))
+                    return self._json(api.strategy_trades(g("name"), mode=g("mode"), limit=max(1, min(int(g("limit", "500") or 500), 5000)),
+                                                          since_reset=g("since_reset", "0") == "1"))
+                except Exception as exc:  # noqa: BLE001
+                    return self._json({"error": str(exc)}, 500)
             if path in routes:
                 try:
                     return self._json(routes[path]())

@@ -146,3 +146,14 @@ yesterday's trades, rejections, exceptions, limits) and weekly (deep: code
 review for correctness and look-ahead, strategy logic, process gaps). Obvious
 fixes are applied and logged; anything else becomes a decision. The bar is
 "we should not be finding much"; a noisy audit is itself a finding.
+
+## Strategy analytics (2026-11-07)
+
+`apexpm/strategy_analytics.py` is read-only over the journal and feeds the dashboard's Analytics tab:
+three tiers (real money = live book, practice = paper book, lab = shadow book), each strategy judged on
+the trades of the book it sits in now, with hit-target attainment and its 10-trade trend, biggest win
+and loss in dollars and percent of capital tied up, and a running P&L line. `/api/strategy/analytics`
+(`?all=1` for all time instead of since the ladder reset) and `/api/strategy/trades?name=` (the drill-down:
+every trade with plain-language fields, filterable by ticker, result, how it ended and account). The
+dashboard's JSON encoder sends null for infinite or NaN numbers so a strategy with no losses cannot
+blank the page.
