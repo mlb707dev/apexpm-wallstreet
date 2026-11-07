@@ -162,7 +162,7 @@ class Api:
             "positions_exception": profiles.positions_exception(self.j),
             "banger": {"active": self.j.get_state(f"banger_active:{et_date()}") == "1",
                        "peak": float(self.j.get_state(f"banger_peak:{et_date()}", "0") or 0),
-                       "trigger_pct": self.cfg.banger_trigger_pct, "floor_pct": self.cfg.banger_floor_pct},
+                       "trigger_pct": eff.banger_trigger_pct, "floor_pct": self.cfg.banger_floor_pct},   # the band's trigger, not the config default
             "readiness": self.readiness(),
             "max_positions_hard": profiles.MAX_POSITIONS_HARD,
             "key_fingerprint": (self.cfg.alpaca_api_key[:4] + "…") if self.cfg.alpaca_api_key else None,
