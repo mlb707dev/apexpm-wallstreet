@@ -104,6 +104,7 @@ class Bot:
         # Kill-switch anchor is per session date and survives restarts.
         anchor_key = f"starting_equity:{today}"
         anchor = self.journal.get_state(anchor_key)
+        reanchored = False
         if anchor is None:
             anchor = str(acct.equity)
             self.journal.set_state(anchor_key, anchor)
@@ -113,8 +114,9 @@ class Bot:
             self.log.warning("startup: equity %.2f far from stored anchor %s with no trades today; re-anchoring", acct.equity, anchor)
             anchor = str(acct.equity)
             self.journal.set_state(anchor_key, anchor)
+            reanchored = True
         self.journal.set_state("starting_equity", anchor)
-        if self.journal.get_state("ladder_start") is None or abs(acct.equity - float(self.journal.get_state("ladder_start"))) / max(acct.equity, 1) > 0.5 and not self.journal.closed_trades():
+        if self.journal.get_state("ladder_start") is None:
             self.journal.set_state("ladder_start", anchor)   # where the capital ladder began (shown as "Started with")
         halted = self.journal.get_state(f"halted:{today}") == "1"
 
@@ -133,6 +135,13 @@ class Bot:
                                        open_symbols=open_syms, halted=halted,
                                        halt_reason="persisted" if halted else None)
         self._roll_day(today)
+        # A paper reset seen at startup (new key, reset account) starts a new ladder, as it does mid-session;
+        # a dashboard request made while the bot was down is honoured here too.
+        if reanchored and self.cfg.paper:
+            self._ladder_reset(acct.equity, today, "paper account reset detected at startup")
+        if self.journal.get_state("ladder_reset_requested") == "1":
+            self.journal.set_state("ladder_reset_requested", "0")
+            self._ladder_reset(acct.equity, today, "owner request (dashboard)")
         self.log.info("equity=%.2f anchor=%.2f open=%s halted=%s", acct.equity, float(anchor), sorted(open_syms), halted)
         for n in self.registry.names():
             self.log.info("strategy %-18s status=%-10s mode=%s", n, self.registry.status(n), self.registry.mode_for(n))
