@@ -38,11 +38,13 @@ BAND_RULES = [
     # banger_trigger_pct: day gain (share of session-start equity) that switches on profit protection
     # (quarter size, conviction floor, halt at 80% of peak). Scaled by band so a $10 gain on $1k does not
     # cap the day (owner, 2026-11-06: "doesn't give back profits" but must be able to grow).
-    (1000.0,        {"daily_loss_pct": 0.0,  "max_positions": 1, "max_trades_per_day": 5, "risk_abs": 1.0,  "kill_dd_pct": 0.0,  "banger_trigger_pct": 0.04}),   # hyper: one at a time, in-trade stops only
-    (5000.0,        {"daily_loss_pct": 0.15, "max_positions": 2, "max_trades_per_day": 5, "risk_abs": 0.75, "kill_dd_pct": 0.15, "banger_trigger_pct": 0.04}),
-    (10000.0,       {"daily_loss_pct": 0.10, "max_positions": 3, "max_trades_per_day": 5, "kill_dd_pct": 0.10, "banger_trigger_pct": 0.03}),
-    (50000.0,       {"daily_loss_pct": 0.08, "max_positions": 3, "max_trades_per_day": 6, "kill_dd_pct": 0.08, "banger_trigger_pct": 0.02}),
-    (float("inf"),  {"daily_loss_pct": 0.06, "max_positions": 3, "max_trades_per_day": 8, "kill_dd_pct": 0.06, "banger_trigger_pct": 0.01}),
+    # max_trades_per_day is a CAP, never a quota (owner, 2026-11-07): 10 in every band so earnings are not
+    # capped by the count; the bot takes what qualifies. Revisit 2026-12-07: raise to 20 or lower to 5.
+    (1000.0,        {"daily_loss_pct": 0.0,  "max_positions": 1, "max_trades_per_day": 10, "risk_abs": 1.0,  "kill_dd_pct": 0.0,  "banger_trigger_pct": 0.04}),   # hyper: one at a time, in-trade stops only
+    (5000.0,        {"daily_loss_pct": 0.15, "max_positions": 2, "max_trades_per_day": 10, "risk_abs": 0.75, "kill_dd_pct": 0.15, "banger_trigger_pct": 0.04}),
+    (10000.0,       {"daily_loss_pct": 0.10, "max_positions": 3, "max_trades_per_day": 10, "kill_dd_pct": 0.10, "banger_trigger_pct": 0.03}),
+    (50000.0,       {"daily_loss_pct": 0.08, "max_positions": 3, "max_trades_per_day": 10, "kill_dd_pct": 0.08, "banger_trigger_pct": 0.02}),
+    (float("inf"),  {"daily_loss_pct": 0.06, "max_positions": 3, "max_trades_per_day": 10, "kill_dd_pct": 0.06, "banger_trigger_pct": 0.01}),
 ]
 # Trades per day is a CAP, never a quota (owner, 2026-11-04): the bot never forces a trade to fill it.
 # Owner's rule (2026-11-01): "usually 3 with exception, up to 5". A position is one
