@@ -1,6 +1,6 @@
 # ApexPM Wallstreet
 
-A paper-first, governance-driven trading agent framework for US stocks on
+A governance-driven trading agent framework for US stocks on
 Alpaca, with an options strike-selection helper ready for an options module. Multiple strategies run under one registry with shared risk, a shared
 journal, automatic suspension when a strategy loses its edge, and an honest
 backtester that decides on one bar and fills on the next.
