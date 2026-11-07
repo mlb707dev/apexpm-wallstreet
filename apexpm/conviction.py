@@ -13,6 +13,12 @@ Factors (owner's list, 2026-11-01):
   rsi                  RSI(14) crossed 50 in the direction within the last 3 bars, or left oversold/overbought in the direction
   stoch                stochastic %K crossed %D in the direction from the 20/80 zones within the last 3 bars
   anchor_side          price on the trade's side of the daily anchor
+Structure factors (2026-11-06, from apexpm.structure; present only when the snapshot carries OHLC bars):
+  bos_aligned          latest 5m break of structure is in the trade direction
+  htf_structure        15m swing trend (higher highs/lows or lower) agrees
+  ob_retest            price sits in a fresh order block of the trade direction
+  fvg_support          price sits in an open fair value gap of the trade direction
+  level_reaction       this bar rejected a key level (ATR level, anchor, prior-day high/low, open) in the trade direction
 """
 from __future__ import annotations
 
@@ -95,4 +101,13 @@ def score(direction: str, snap, closes: Sequence[float], highs=None, lows=None, 
     f["stoch"] = bool(kd.iloc[-1] > 0 and (kd.iloc[-(lookback + 1):-1] <= 0).any() and zone)
 
     f["anchor_side"] = bool((snap.price - lv.anchor) * s > 0)
+
+    arr = getattr(snap, "ltf_ohlc", None)
+    if arr is not None and len(arr) >= 9 and lv.atr > 0:
+        from .structure import factors as structure_factors
+        a = np.asarray(arr, dtype=float)
+        hx = np.asarray(snap.htf_ohlc, dtype=float) if getattr(snap, "htf_ohlc", None) is not None else None
+        f.update(structure_factors(direction, a[:, 0], a[:, 1], a[:, 2], a[:, 3], lv.atr, snap.key_levels(),
+                                   htf_high=hx[:, 1] if hx is not None else None,
+                                   htf_low=hx[:, 2] if hx is not None else None))
     return Conviction(sum(f.values()), f)

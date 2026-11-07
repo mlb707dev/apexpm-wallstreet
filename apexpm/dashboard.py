@@ -404,6 +404,11 @@ class Api:
         from .readiness import readiness
         return readiness(self.j, self.cfg)
 
+    def audit(self) -> Dict[str, Any]:
+        """Auditor pass: book vs evidence, giveback, and any demotion proposals it files (owner decides)."""
+        from .auditor import audit
+        return audit(self.j, self.reg, self.cfg)
+
     def reports(self) -> list:
         return _rows(self.j.q("SELECT * FROM daily_reports ORDER BY date DESC LIMIT 30"))
 
@@ -570,7 +575,7 @@ def make_handler(api: Api, token: str = ""):
                 "/api/trades": api.trades, "/api/strategies": api.strategies, "/api/analytics": api.analytics,
                 "/api/rejections": api.rejections, "/api/events": api.events, "/api/reports": api.reports, "/api/weekly": api.weekly_reports, "/api/readiness": api.readiness,
                 "/api/plan": api.plan, "/api/settings": api.settings, "/api/calendar": api.calendar,
-                "/api/decisions": api.decisions, "/api/news": api.news, "/api/variants": api.variants,
+                "/api/decisions": api.decisions, "/api/news": api.news, "/api/variants": api.variants, "/api/audit": api.audit,
             }
             if path == "/api/rejections/rows":
                 from urllib.parse import parse_qs

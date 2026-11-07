@@ -157,6 +157,9 @@ class Backtester:
 
         ltf_ema = _ema_frame(ltf, cfg.ema_fast, cfg.ema_mid, cfg.ema_slow)
         htf_ema = _ema_frame(htf, cfg.ema_fast, cfg.ema_mid, cfg.ema_slow)
+        ohlc_cols = ["open", "high", "low", "close"]
+        ltf_ohlc_all = ltf[ohlc_cols].values.astype(float) if all(c in ltf for c in ohlc_cols) else None
+        htf_ohlc_all = htf[ohlc_cols].values.astype(float) if all(c in htf for c in ohlc_cols) else None
         htf_minutes = cfg.htf_bar_minutes
 
         ltf_et = ltf.index.tz_convert(ET)
@@ -192,11 +195,14 @@ class Backtester:
             if np.isnan(atr):
                 continue
             levels: LevelMap = build_levels(float(daily["close"].iloc[pi]), float(atr))
+            pd_high = float(daily["high"].iloc[pi]) if "high" in daily else 0.0
+            pd_low = float(daily["low"].iloc[pi]) if "low" in daily else 0.0
             sessions += 1
             reached = {"long": 0.0, "short": 0.0}
             trades_today = 0
             last_stop: Dict[str, Optional[datetime]] = {"long": None, "short": None}
             bars = ltf.loc[idx]
+            day_open = float(bars["open"].iloc[0]) if "open" in bars else float(bars["close"].iloc[0])
             pending = None
             slot_avg = slot_lookup.get(day) if slot_lookup else None
 
@@ -302,8 +308,14 @@ class Backtester:
                     prev2_close = float(ltf["close"].iloc[gi - 2])
                 # relative volume: same time-of-day slot averaged over the prior sessions (not the last 20 bars)
                 vol_avg = float(slot_avg.get((ts_et.hour, ts_et.minute), 0.0)) if slot_avg is not None else 0.0
+                ltf_ohlc = ltf_ohlc_all[max(0, gi - 120):gi + 1] if ltf_ohlc_all is not None else None
+                htf_ohlc = None
+                if htf_ohlc_all is not None:
+                    hp = htf.index.get_loc(h_idx[-1])
+                    htf_ohlc = htf_ohlc_all[max(0, hp - 79):hp + 1]
                 snap = MarketSnapshot(symbol=self.symbol, price=close, levels=levels,
                                       ribbon_ltf=rl, ribbon_htf=rh, ltf_closes=list(ltf["close"].values[max(0, gi - 60):gi + 1]),
+                                      ltf_ohlc=ltf_ohlc, htf_ohlc=htf_ohlc, pd_high=pd_high, pd_low=pd_low, day_open=day_open,
                                       regime="trend_up" if rh.state == "bull" else "trend_down" if rh.state == "bear" else "chop",
                                       reached_today=prev_reached, bar_index_today=pos_i,
                                       minutes_since_open=int((ts_et.hour - 9) * 60 + ts_et.minute - 30),

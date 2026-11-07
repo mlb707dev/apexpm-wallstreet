@@ -79,6 +79,7 @@ class Bot:
         self.news = NewsFeed(cfg, self.journal) if cfg.news_enabled else None
         self.state: Optional[riskmod.RiskState] = None
         self._levels: Dict[str, LevelMap] = {}
+        self._pd_range: Dict[str, tuple] = {}      # symbol -> (prior-day high, prior-day low)
         self._reached: Dict[str, Dict[str, float]] = {}
         self._today = ""
         self._day_ctx: Optional[cal.DayContext] = None
@@ -182,6 +183,10 @@ class Bot:
             self.log.warning("%s: levels unavailable: %s", symbol, exc)
             return None
         self._levels[symbol] = lv
+        try:   # same row the anchor comes from (levels_from_daily uses the last daily bar)
+            self._pd_range[symbol] = (float(daily["high"].iloc[-1]), float(daily["low"].iloc[-1]))
+        except Exception:  # noqa: BLE001
+            self._pd_range[symbol] = (0.0, 0.0)
         extra = {"day": lv.as_dict()}
         try:
             weekly = daily.resample("W-FRI").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
@@ -218,12 +223,14 @@ class Bot:
             return None
         price = (self.fast.prices.get(symbol, 5) if self.fast else None) \
             or self.feed.last_price(symbol, self.cfg.max_price_age_sec) or float(ltf["close"].iloc[-1])
+        day_open = 0.0
         try:
             if hasattr(ltf.index, "tz_convert"):
                 et_idx = ltf.index.tz_convert(ET)
                 today_mask = et_idx.date == now_utc.astimezone(ET).date()
                 tb = ltf[today_mask]
                 if len(tb):
+                    day_open = float(tb["open"].iloc[0]) if "open" in tb else float(tb["close"].iloc[0])
                     if "volume" in tb:
                         safe(self.journal.set_state, f"vol_today:{symbol}", str(float(tb["volume"].sum())))
                     safe(self.journal.set_state, f"range:{symbol}", json.dumps({
@@ -253,10 +260,15 @@ class Bot:
         regime = "trend_up" if rh.state == "bull" else "trend_down" if rh.state == "bear" else "chop"
         self._momentum[symbol] = {"long": rl.fast > rl.mid, "short": rl.fast < rl.mid}
         bars = snapshot_bar_fields(ltf)
+        cols = ["open", "high", "low", "close"]
+        ltf_ohlc = ltf[cols].values[-121:].astype(float) if all(c in ltf for c in cols) else None
+        htf_ohlc = htf[cols].values[-80:].astype(float) if all(c in htf for c in cols) else None
+        pd_hi, pd_lo = self._pd_range.get(symbol, (0.0, 0.0))
         return MarketSnapshot(symbol=symbol, price=price, levels=lv, ribbon_ltf=rl, ribbon_htf=rh,
                               ltf_closes=list(ltf["close"].values), regime=regime,
                               reached_today=prev_reached, bar_index_today=max(0, mins) // self.cfg.bar_minutes,
-                              minutes_since_open=mins, prev_ribbon_ltf=prev_rl, prev2_ribbon_ltf=prev2_rl, **bars)
+                              minutes_since_open=mins, prev_ribbon_ltf=prev_rl, prev2_ribbon_ltf=prev2_rl,
+                              ltf_ohlc=ltf_ohlc, htf_ohlc=htf_ohlc, pd_high=pd_hi, pd_low=pd_lo, day_open=day_open, **bars)
 
     def scan_once(self, now_utc: Optional[datetime] = None) -> List[Signal]:
         now_utc = now_utc or datetime.now(timezone.utc)

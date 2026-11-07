@@ -108,6 +108,31 @@ challenger per base; a newer one retires the older unless the owner already
 promoted it. Promotion to paper or live goes through the same gate as every
 strategy. The tuner never trades.
 
+## Evolution harness (2026-11-06)
+
+The tuning loop grew into a harness with four roles, split between the Mac
+(data and CPU) and the bot (journal and books):
+
+| role | where | what it does |
+|---|---|---|
+| Explorer | Mac, nightly | the tuner over every classic base: new combinations of existing recipes, long-only when the account cannot short |
+| Inventor | Mac, nightly | the same tuner over the *composite* bases, whose grammar composes a trigger (order-block retest, fair-value-gap retest, wick rejection at a key level, level break) with confirmations (15m ribbon, 5m break of structure, 15m swing trend, volume), a stop rule and a target rule: new recipes, not re-weights |
+| Auditor | bot, daily review and `/api/audit` | per paper/live strategy since the ladder reset: expectancy, profit factor, last-10, overhold share (reached the target, gave it back), stop share, drift from the time-split evidence it was promoted on; per day: peak realized gain vs close ("gave back" days). A strategy with no edge over enough trades becomes a pending decision for the owner; the auditor never demotes |
+| Reporter | Mac, nightly | `research/evolve/<date>.md`: the night's challengers plus the bot's audit |
+
+`scripts/evolve.py` runs Explorer, Inventor and Reporter and submits
+challengers to the shadow book; a launchd agent runs it at 02:00. Nothing in
+the harness trades or promotes. Promotion still goes through the typed gate.
+
+Price structure (`apexpm/structure.py`) is read from completed OHLC bars on
+both timeframes and is identical live and in the backtester: fractal swings,
+break of structure, order blocks (last opposing candle before an impulse that
+breaks structure; mitigated once price trades back in), fair value gaps, and
+wick rejections at key levels (ATR levels, anchor, prior-day high/low, today's
+open). The conviction gate counts five structure confirmations on top of the
+indicator ones, so every strategy's signals now carry a multi-timeframe
+structure read and the size multiplier can act on it.
+
 ## Journal durability
 
 The journal lives on a persistent disk at the host. A paper account reset changes

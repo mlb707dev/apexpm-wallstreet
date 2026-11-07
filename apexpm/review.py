@@ -86,7 +86,7 @@ def daily_review(bot, date_iso: str = None) -> str:
     if vrows:
         lines += ["", "## Tuned variants (shadow until promoted)", ""]
         for v in vrows:
-            shadow = j.q1("SELECT COUNT(*) AS n FROM rejections WHERE session_date=? AND setup=? AND reason='research_observed'", (date, v["name"]))
+            shadow = j.q1("SELECT COUNT(*) AS n FROM rejections WHERE session_date=? AND setup=? AND reason='research_observed'", (date_iso, v["name"]))
             t = (v.get("evidence") or {}).get("pooled", {}).get("test", {})
             lines.append(f"- {v['name']} ({v['base']}): {reg.status(v['name']) if v['name'] in reg._entries else 'retired'}, "
                          f"symbols {', '.join(v['symbols'])}, test {t.get('exp', 0):+.3f}R n{t.get('n', 0)}, shadow signals today {shadow['n'] if shadow else 0}")
@@ -94,6 +94,11 @@ def daily_review(bot, date_iso: str = None) -> str:
     lines += ["", "## Governance actions", ""] + ([f"- {a}" for a in actions] or ["- none"])
     pend = reg.decisions("pending")
     lines += ["", "## Decisions waiting for the owner", ""] + ([f"- #{d['id']} {d['title']}: {d['proposal']}" for d in pend] or ["- none"])
+    from .auditor import audit, audit_lines
+    try:
+        lines += [""] + audit_lines(audit(j, reg, bot.cfg))
+    except Exception as exc:  # noqa: BLE001
+        lines += ["", f"## Auditor: failed ({exc})"]
     from .readiness import readiness, readiness_lines
     lines += [""] + readiness_lines(readiness(j, bot.cfg))
     report = "\n".join(lines)

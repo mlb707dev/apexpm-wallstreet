@@ -43,6 +43,20 @@ class MarketSnapshot:
     prev2_close: float = 0.0
     bar_volume: float = 0.0
     vol_avg20: float = 0.0            # average volume of the prior 20 bars
+    # price structure inputs (completed bars, oldest -> newest, columns open/high/low/close);
+    # None when a caller has no bars, in which case structure factors are simply absent
+    ltf_ohlc: Optional[object] = None    # np.ndarray (N, 4) of the last ~120 LTF bars incl. the decision bar
+    htf_ohlc: Optional[object] = None    # np.ndarray (M, 4) of the last ~80 completed HTF bars
+    pd_high: float = 0.0              # prior session high
+    pd_low: float = 0.0               # prior session low
+    day_open: float = 0.0             # today's first bar open
+
+    def key_levels(self) -> List[float]:
+        """Levels price is expected to react to: the ATR levels, the anchor, prior-day high/low and
+        today's open. Zeros (unknown) are skipped."""
+        lv = self.levels
+        out = list(lv.up.values()) + list(lv.down.values()) + [lv.anchor, self.pd_high, self.pd_low, self.day_open]
+        return [float(x) for x in out if x]
 
 
 class _Params:
