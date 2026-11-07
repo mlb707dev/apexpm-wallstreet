@@ -115,6 +115,8 @@ class Registry:
         st = self.status(name)
         if st == "live" and not self.cfg.paper and not self.cfg.dry_run:
             return "LIVE"
+        if st == "paper" and not self.cfg.paper:
+            return "DRY_RUN"   # PAPER=false points the broker at the real account; only `live` may order there
         if st in ("paper", "live") and not self.cfg.dry_run:
             return "PAPER"
         return "DRY_RUN"

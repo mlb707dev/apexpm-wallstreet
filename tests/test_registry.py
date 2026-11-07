@@ -21,3 +21,14 @@ def test_status_persists_and_auto_suspends(cfg):
     for _ in range(10):
         _closed(j, "example_breakout", 2.0)
     assert r.review() == [] and r.status("example_breakout") == "suspended"   # never un-suspends itself
+
+
+def test_paper_status_never_orders_on_real_account(cfg):
+    from apexpm.strategies.example_breakout import ExampleBreakout
+    j = Journal(":memory:")
+    r = Registry(j, cfg)
+    r.register(ExampleBreakout(), "paper")
+    cfg.dry_run, cfg.paper = False, False
+    assert r.mode_for(ExampleBreakout().name) == "DRY_RUN"
+    cfg.paper = True
+    assert r.mode_for(ExampleBreakout().name) == "PAPER"
