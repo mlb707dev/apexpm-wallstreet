@@ -314,6 +314,7 @@ class Api:
             out.append({"name": n, "description": e.strategy.description, "status": self.reg.status(n),
                         "book": self.reg.book(n), "label": self.reg.label(n),
                         "mode": self.reg.mode_for(n), "symbols": e.symbols, "stats": st.__dict__ if st else None,
+                        "earned": self._earned(n),
                         "live_readiness": self.reg.live_readiness(n),
                         "variant": {"base": v["base"], "overrides": v["overrides"], "evidence": v["evidence"], "created_at": v["created_at"]} if v else None})
         return out
@@ -404,6 +405,13 @@ class Api:
     def readiness(self) -> Dict[str, Any]:
         from .readiness import readiness
         return readiness(self.j, self.cfg)
+
+    def _earned(self, name: str):
+        try:
+            from . import earned
+            return earned.ladder(self.j, name, self.cfg.review_window_trades)
+        except Exception:  # noqa: BLE001
+            return None
 
     def strategy_analytics(self, days: int = 0) -> Dict[str, Any]:
         """Three tiers (active = live book, paper, lab = shadow) with attainment trend and extremes per strategy.

@@ -162,6 +162,9 @@ class Config:
     ready_target_date: str = field(default_factory=lambda: _s("READY_TARGET_DATE", "2026-11-18"))
     # Conviction: confirmations are RECORDED on every signal; CONVICTION_MIN=0 means soft (never blocks)
     conviction_min: int = field(default_factory=lambda: _i("CONVICTION_MIN", 0))
+    # earned size: a strategy's size steps up (x1.25/x1.5/x2) only after enough wins at a high enough win rate
+    # on filled trades, and steps down when it stops delivering (apexpm/earned.py). Never lifts the hard caps.
+    earned_size_enabled: bool = field(default_factory=lambda: _b("EARNED_SIZE_ENABLED", True))
 
     # Exit engine
     exit_be_at_r: float = field(default_factory=lambda: _f("EXIT_BE_AT_R", 0.0))

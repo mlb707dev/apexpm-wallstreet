@@ -512,6 +512,21 @@ class Bot:
                 qty = round(qty, 3) if self.cfg.fractional_shares else float(int(qty))
                 sz = sz.__class__(qty, sz.dollar_risk * cm, sz.kelly_full, sz.kelly_used, sz.vol_scale, qty * snap.price)
                 sig.context["confluence_mult"] = cm
+            # earned size: more only after the strategy has proven itself on filled trades (apexpm/earned.py)
+            try:
+                from . import earned as earnedmod
+                el = earnedmod.mult_for(self.journal, strat.name, self.cfg)
+            except Exception as exc:  # noqa: BLE001
+                self.log.warning("earned size unavailable for %s: %s", strat.name, exc)
+                el = {"mult": 1.0, "tier": 0, "name": "proving", "guard": None}
+            sig.context["earned_tier"] = el["tier"]
+            sig.context["earned_mult"] = el["mult"]
+            if el["mult"] != 1.0 and sz.qty > 0:
+                cap = min(self.cfg.max_pos_dollars, self.state.equity * self.cfg.max_notional_pct) / snap.price
+                qty = min(sz.qty * el["mult"], cap)
+                qty = round(qty, 3) if self.cfg.fractional_shares else float(int(qty))
+                if qty > 0:
+                    sz = sz.__class__(qty, sz.dollar_risk * qty / sz.qty, sz.kelly_full, sz.kelly_used, sz.vol_scale, qty * snap.price)
             # buying power: a second position in a cash account can only use what the first left.
             # Size down to it rather than let the broker reject the order (a wasted signal).
             bp = float(getattr(self, "_buying_power", 0.0) or 0.0)

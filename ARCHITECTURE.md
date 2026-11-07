@@ -194,3 +194,17 @@ replay and lesson since launch, never pruned by a ladder reset. Protection:
   verifies integrity, rewrites ONE small `data/exports/` folder of CSVs (no scan/rejection logs), and reports to
   `POST /api/harness/report` as source "backup". Both folders are gitignored (private data).
 - Warden duties "journal healthy" (every patrol) and "journal backed up" (within 36h, Tue-Sat).
+
+## Earned size and the owner's lens (2026-11-07)
+
+- `apexpm/earned.py`: per-strategy size tier on FILLED trades over the review window: proving x1.00,
+  earning x1.25 (>= 10 wins, 50%, PF 1.2), proven x1.50 (>= 25 wins, 55%, +0.20R, PF 1.4), stacking
+  x2.00 (>= 50 wins, 55%, +0.25R, PF 1.5). Steps down one tier while the last 10 are net negative or on a
+  4-loss streak; never below base; never lifts the band, notional or buying-power caps. Applied in the
+  loop after the confluence multiplier, journaled as `earned_tier` / `earned_mult` in the trade notes.
+  `EARNED_SIZE_ENABLED=0` switches it off.
+- `brain.patterns_for`: the worst and best quarter of a strategy's closed trades (by dollars), the
+  traits over-represented in each (ticker, time of day, how it ended, market, confirmations, hold,
+  replay verdict, fill cost), and the "easy fixes" those imply (drop a ticker, no entries in a window,
+  widen the stop, take profit sooner, require 4 confirmations, use a limit). Fixes are filed once each as
+  owner decisions; nothing changes a live setting.

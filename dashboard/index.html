@@ -125,7 +125,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 24</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 25</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -473,7 +473,7 @@ function stratCard(s){
       <div><div class="k">Avg vs. risk</div><div class="v ${cls(s.exp_r)}">${signed(s.exp_r)}×</div></div>
       <div><div class="k">Gave it back</div><div class="v ${s.gave_back?'neg':''}">${s.gave_back}</div></div>
     </div>
-    <div class="ext">${extreme(s.biggest_win,'Biggest win')}${extreme(s.biggest_loss,'Biggest loss')}</div>${lessonsTxt(s.lessons)}
+    <div class="ext">${extreme(s.biggest_win,'Biggest win')}${extreme(s.biggest_loss,'Biggest loss')}</div>${earnedTxt(s.earned)}${lessonsTxt(s.lessons)}
     <div class="trend">${spark(s.curve,'cum_pnl')}<div>${trendTxt(s)}${s.expected_r!=null && s.drift_r!=null ? `<br>Backtest promised ${signed(s.expected_r)}× risk per trade; running ${signed(s.drift_r)}× vs. that.` : ''}</div></div>`
     : `<p class="empty">No closed trades yet in this book${other?` (${other})`:''}.</p>`;
   return `<div class="sc" onclick="openStrat('${s.name}')"><div class="nm"><span>${nice(s.name)}</span>${open}<span class="chip ${s.status}">${s.label}</span></div><div class="desc">${s.description} · ${s.symbols.join(', ')}</div>${body}<div class="more">See every trade ›</div></div>`;
@@ -485,9 +485,24 @@ let ANA_DAYS = 0;
 const WINDOWS = [[0,'All time'],[90,'90 days'],[30,'30 days'],[7,'7 days'],[1,'24 hours']];
 function windowSeg(){ return `<div class="seg" style="grid-template-columns:repeat(5,1fr)">${WINDOWS.map(([d,l])=>`<button class="${ANA_DAYS===d?'on':''}" onclick="ANA_DAYS=${d};loadAnalytics()">${l}</button>`).join('')}</div>`; }
 function lessonsTxt(L){
-  if(!L || !L.n_with_bars) return '';
-  const recs = (L.recommendations||[]).map(r=>`<div class="row"><span style="white-space:normal">💡 ${r.text}</span></div>`).join('');
-  return `<div class="ext" style="grid-template-columns:1fr"><div><div class="k">What the replays taught us</div>${L.summary}${recs}</div></div>`;
+  if(!L) return '';
+  let html = '';
+  if(L.n_with_bars){
+    const recs = (L.recommendations||[]).map(r=>`<div class="row"><span style="white-space:normal">💡 ${r.text}</span></div>`).join('');
+    html += `<div class="ext" style="grid-template-columns:1fr"><div><div class="k">What the replays taught us</div>${L.summary}${recs}</div></div>`;
+  }
+  const P = L.patterns;
+  if(P && (P.losers || P.winners)){
+    const grp = (g, label, color) => g && g.traits && g.traits.length ? `<div><div class="k">${label} · ${g.n} trades · <b class="${color}">${money(g.pnl)}</b></div>${g.traits.map(t=>`${t.trait.replace(/^(\w+): /,(m,k)=>k+': ')} <span class="d">(${t.count} of ${t.of})</span>`).join('<br>')}</div>` : (g ? `<div><div class="k">${label} · ${g.n} trades · <b class="${color}">${money(g.pnl)}</b></div><span class="d">nothing they clearly share yet</span></div>` : '');
+    html += `<div class="ext">${grp(P.losers,'Biggest losses had in common','neg')}${grp(P.winners,'Biggest wins had in common','pos')}</div>`;
+    if(P.fixes && P.fixes.length) html += `<div class="ext" style="grid-template-columns:1fr"><div><div class="k">Easy fixes to consider (also filed as decisions)</div>${P.fixes.map(f=>`<div class="row"><span style="white-space:normal">🔧 ${f}</span></div>`).join('')}</div></div>`;
+  }
+  return html;
+}
+function earnedTxt(E){
+  if(!E) return '';
+  const names = {proving:'proving itself', earning:'earning more size', proven:'proven', stacking:'stacking'};
+  return `<div class="ext" style="grid-template-columns:1fr"><div><div class="k">Earned size</div><b>×${E.mult.toFixed(2)}</b> · ${names[E.name]||E.name}${E.guard?` · <span class="neg">stepped down: ${E.guard}</span>`:''}<br><span class="d">${E.next} Judged on the last ${E.window||30} filled trades: ${E.wins} wins of ${E.n}, win rate ${Math.round((E.win_rate||0)*100)}%.</span></div></div>`;
 }
 async function loadAnalytics(){
   const el = $('#ana');
@@ -557,7 +572,7 @@ async function loadStrategies(){
   $('#stratlist').innerHTML = ss.map(s=>{
     const st = s.stats;
     const stats = st ? `<div class="kv" style="margin-top:8px"><div><div class="k">Trades</div><div class="v sm">${st.trades}</div></div><div><div class="k">Win</div><div class="v sm">${Math.round(st.win_rate*100)}%</div></div><div><div class="k">Exp</div><div class="v sm ${cls(st.expectancy_r)}">${(st.expectancy_r>=0?'+':'')+fmt(st.expectancy_r)}R</div></div><div><div class="k">P&amp;L (all)</div><div class="v sm ${cls(st.pnl)}">${money(st.pnl)}</div></div><div><div class="k">PF</div><div class="v sm">${st.profit_factor==null?'—':(st.profit_factor>99?'∞':fmt(st.profit_factor))}</div></div><div><div class="k">Max DD</div><div class="v sm">${fmt(st.max_dd_r)}R</div></div></div>` : '<p>No closed trades yet.</p>';
-    const lr = s.live_readiness; const lrTxt = lr ? (lr.ready ? '<span class="pos">live bar met</span>' : 'live bar: '+lr.checks.filter(c=>!c.ok).map(c=>c.name+' ('+c.value+')').join(' · ')) : '';
+    const lr = s.live_readiness; const lrTxt = (lr ? (lr.ready ? '<span class="pos">live bar met</span>' : 'live bar: '+lr.checks.filter(c=>!c.ok).map(c=>c.name+' ('+c.value+')').join(' · ')) : '') + (s.earned && (s.book==='paper'||s.book==='live') ? `<br>size ×${s.earned.mult.toFixed(2)} (${s.earned.name})${s.earned.guard?' · stepped down: '+s.earned.guard:''} · ${s.earned.next}` : '');
     const act = (s.status==='suspended'||s.status==='research') ? `<button class="btn ok" onclick="setStatus('${s.name}','paper')">Promote to paper</button>` : (s.status==='retired' ? '' : `<button class="btn warn" onclick="setStatus('${s.name}','suspended')">Suspend</button>`);
     const v = s.variant; let vTxt = '';
     if(v && v.evidence && v.evidence.pooled){ const p = v.evidence.pooled; const f = x => (x.exp>=0?'+':'')+fmt(x.exp,3)+'R n'+x.n;

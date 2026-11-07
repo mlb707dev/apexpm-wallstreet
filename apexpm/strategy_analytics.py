@@ -143,6 +143,16 @@ def _since(days: Optional[int]) -> Optional[str]:
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
 
 
+def _earned(journal, name: str, registry):
+    try:
+        from . import earned
+        if registry.book(name) not in ("paper", "live"):
+            return None
+        return earned.ladder(journal, name, 30)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def tiers(journal, registry, days: Optional[int] = None) -> Dict[str, Any]:
     """The three sections. A strategy is judged on the trades of the book it sits in now (a paper
     strategy on its PAPER fills, a lab strategy on its shadow journal), with the counts of its other
@@ -183,8 +193,10 @@ def tiers(journal, registry, days: Optional[int] = None) -> Dict[str, Any]:
                           "open": open_by.get(name, 0), "n_by_mode": by_mode, "expected_r": expected.get(name),
                           "drift_r": (round(s["exp_r"] - expected[name], 3) if (name in expected and s["exp_r"] is not None) else None),
                           "lessons": ({"summary": lessons[name].get("summary"), "recommendations": lessons[name].get("recommendations", []),
-                                       "verdicts": lessons[name].get("verdicts"), "n_with_bars": lessons[name].get("n_with_bars")}
+                                       "verdicts": lessons[name].get("verdicts"), "n_with_bars": lessons[name].get("n_with_bars"),
+                                       "patterns": lessons[name].get("patterns")}
                                       if name in lessons else None),
+                          "earned": _earned(journal, name, registry),
                           **s})
         items.sort(key=lambda x: (-(x["pnl"] or 0.0), -(x["n"] or 0), x["name"]))
         out["tiers"].append({"tier": tier, "book": book, "mode": mode, "strategies": items,
