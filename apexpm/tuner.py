@@ -239,14 +239,24 @@ def to_spec(c: Candidate, note: str = "") -> dict:
 
 # ---- orchestration -------------------------------------------------------------------
 def run(bases: List[str], symbols: List[str], n_per_base: int, seed: int, workers: int = 0,
-        store_path: str = STORE, log=print, long_only: bool = False) -> Dict[str, dict]:
-    """Evaluate unexplored combos, append to the store, then select per base."""
+        store_path: str = STORE, log=print, long_only: bool = False,
+        extra: Optional[Dict[str, List[dict]]] = None) -> Dict[str, dict]:
+    """Evaluate unexplored combos, append to the store, then select per base.
+    extra: {base: [overrides, ...]} combinations that must be evaluated this run on top of the sample
+    (the brain's hints: what the live trades say would have paid, e.g. a longer hold)."""
     from concurrent.futures import ProcessPoolExecutor
     store = load_store(store_path)
     tasks = []
     for base in bases:
         explored = {k for (k, s) in store if store[(k, s)]["base"] == base and all((k, sym) in store for sym in symbols)}
-        for ov in sample_combos(base, n_per_base, seed, explored, long_only):
+        hinted = []
+        for h in (extra or {}).get(base, []):
+            ov = dict(incumbent_overrides(base, long_only))
+            ov.update(h)
+            if long_only:
+                ov = long_only_overrides(ov)
+            hinted.append(ov)
+        for ov in hinted + sample_combos(base, n_per_base, seed, explored, long_only):
             k = combo_key(base, ov)
             for sym in symbols:
                 if (k, sym) not in store:

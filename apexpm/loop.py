@@ -755,6 +755,20 @@ class Bot:
         except Exception as exc:  # noqa: BLE001
             self.log.exception("daily review failed: %s", exc)
 
+    def _maybe_warden(self) -> None:
+        """Every 30 minutes: the warden checks every harness role and repairs what it can."""
+        from . import warden
+        if not warden.due(self.journal):
+            return
+        try:
+            w = warden.patrol(self.journal, self.registry, self.cfg, bot=self)
+            failed = [c["duty"] for c in w["checks"] if not c["ok"]]
+            repaired = [c["duty"] for c in w["checks"] if c["repaired"]]
+            self.log.info("warden: %s%s%s", "all duties done" if w["ok"] else "FAILING " + ", ".join(failed),
+                          f"; repaired {', '.join(repaired)}" if repaired else "", "")
+        except Exception as exc:  # noqa: BLE001
+            self.log.exception("warden failed: %s", exc)
+
     def _close_minutes(self, now_et: datetime) -> int:
         """Minutes after midnight ET of today's close (13:00 on early-close days)."""
         ctx = self._day_ctx
@@ -876,6 +890,7 @@ class Bot:
                     maybe_weekly(self)
                 if self.broker.clock_is_open():
                     safe(self.journal.set_state, "market", "open")
+                self._maybe_warden()
             except KeyboardInterrupt:
                 self.log.info("stopped by user")
                 return

@@ -157,3 +157,26 @@ and loss in dollars and percent of capital tied up, and a running P&L line. `/ap
 every trade with plain-language fields, filterable by ticker, result, how it ended and account). The
 dashboard's JSON encoder sends null for infinite or NaN numbers so a strategy with no losses cannot
 blank the page.
+
+## Learning loop roles (2026-11-07)
+
+Owner rule: analytics and learning run on ALL trades, in every book (real, paper, lab), all time.
+Windows (24h / 7d / 30d / 90d) are for reporting only; a ladder reset never hides history.
+
+- **Postmortem** (`apexpm/postmortem.py`, private): every closed trade is replayed from the 5-minute bars
+  around it: fill slippage against the signal price, dollars risked as a share of equity, MFE/MAE while
+  held, what-if results for fixed holds (15/30/60/120/240 min, the close) with the original stop honoured,
+  the best exit available after ours, whether the target or the stop came first afterwards, and one
+  verdict (good exit / left money / held too long / stop too tight). Stored in `trade_reviews`.
+- **Brain** (`apexpm/brain.py`, private): aggregates the replays per strategy into lessons and
+  recommendations (hold, stop, exit, pricing), stores them in `brain`, turns strong ones (n >= 15,
+  >= 0.10R per trade) into tuner hints, and files one pending decision per lesson for the owner.
+  `/api/brain` serves lessons and hints; the nightly `scripts/evolve.py` backtests the hints first
+  (`tuner.run(extra=...)`) and reports back through `POST /api/harness/report`.
+- **Warden** (`apexpm/warden.py`): every 30 minutes in the loop, checks that every role did its work
+  (bot alive, every strategy scanned today, replays done, brain current, auditor within 24h, daily
+  review written, weekly recap written, nightly tuner reported within 36h), runs the repair it is
+  allowed to run, and files one decision per failing duty per day. `/api/warden` shows the last
+  patrol; the Overview card "Is every job getting done?" renders it.
+- The daily review now carries the Brain and Warden sections after the Auditor.
+- `trades.signal_entry` keeps the price the signal asked for (entry becomes the fill) so slippage is real.

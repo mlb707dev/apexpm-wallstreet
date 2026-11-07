@@ -99,6 +99,18 @@ def daily_review(bot, date_iso: str = None) -> str:
         lines += [""] + audit_lines(audit(j, reg, bot.cfg))
     except Exception as exc:  # noqa: BLE001
         lines += ["", f"## Auditor: failed ({exc})"]
+    try:
+        from . import brain, postmortem
+        postmortem.backfill(j, getattr(bot, "feed", None), limit=200)
+        brain.think(j, reg, bot.cfg, data=None)
+        lines += [""] + brain.brain_lines(j)
+    except Exception as exc:  # noqa: BLE001
+        lines += ["", f"## Brain: failed ({exc})"]
+    try:
+        from . import warden
+        lines += [""] + warden.warden_lines(warden.last(j))
+    except Exception as exc:  # noqa: BLE001
+        lines += ["", f"## Warden: failed ({exc})"]
     from .readiness import readiness, readiness_lines
     lines += [""] + readiness_lines(readiness(j, bot.cfg))
     report = "\n".join(lines)

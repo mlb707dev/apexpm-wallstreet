@@ -136,11 +136,18 @@ def _closed_for(journal, name: str, since: Optional[str]) -> List[dict]:
     return rows
 
 
-def tiers(journal, registry, since_reset: bool = True) -> Dict[str, Any]:
+def _since(days: Optional[int]) -> Optional[str]:
+    if not days:
+        return None
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+
+
+def tiers(journal, registry, days: Optional[int] = None) -> Dict[str, Any]:
     """The three sections. A strategy is judged on the trades of the book it sits in now (a paper
     strategy on its PAPER fills, a lab strategy on its shadow journal), with the counts of its other
-    modes shown so a promotion's history is not lost. since_reset limits to the current ladder."""
-    since = (journal.get_state("ladder_reset_at") or None) if since_reset else None
+    modes shown so a promotion's history is not lost. All time by default; days= narrows the window."""
+    since = _since(days)
     from . import variants as variantsmod
     expected: Dict[str, float] = {}
     try:
@@ -150,7 +157,12 @@ def tiers(journal, registry, since_reset: bool = True) -> Dict[str, Any]:
                 expected[v["name"]] = float(t["exp"])
     except Exception:  # noqa: BLE001
         pass
-    out: Dict[str, Any] = {"since": since, "tiers": []}
+    out: Dict[str, Any] = {"since": since, "days": days or 0, "tiers": []}
+    try:
+        from . import brain as brainmod
+        lessons = {l["name"]: l for l in brainmod.lessons(journal)}
+    except Exception:  # noqa: BLE001
+        lessons = {}
     open_by: Dict[str, int] = {}
     for r in journal.open_trades():
         open_by[r["setup"]] = open_by.get(r["setup"], 0) + 1
@@ -170,6 +182,9 @@ def tiers(journal, registry, since_reset: bool = True) -> Dict[str, Any]:
                           "description": e.strategy.description, "symbols": list(e.symbols), "mode": mode,
                           "open": open_by.get(name, 0), "n_by_mode": by_mode, "expected_r": expected.get(name),
                           "drift_r": (round(s["exp_r"] - expected[name], 3) if (name in expected and s["exp_r"] is not None) else None),
+                          "lessons": ({"summary": lessons[name].get("summary"), "recommendations": lessons[name].get("recommendations", []),
+                                       "verdicts": lessons[name].get("verdicts"), "n_with_bars": lessons[name].get("n_with_bars")}
+                                      if name in lessons else None),
                           **s})
         items.sort(key=lambda x: (-(x["pnl"] or 0.0), -(x["n"] or 0), x["name"]))
         out["tiers"].append({"tier": tier, "book": book, "mode": mode, "strategies": items,
@@ -177,10 +192,19 @@ def tiers(journal, registry, since_reset: bool = True) -> Dict[str, Any]:
     return out
 
 
-def trades_for(journal, name: str, mode: str = "", limit: int = 500, since_reset: bool = False) -> Dict[str, Any]:
-    """Every trade of one strategy, newest first, with the derived fields, for the drill-down."""
-    since = (journal.get_state("ladder_reset_at") or None) if since_reset else None
+def trades_for(journal, name: str, mode: str = "", limit: int = 500, days: Optional[int] = None) -> Dict[str, Any]:
+    """Every trade of one strategy, newest first, with the derived fields and its replay, for the drill-down."""
+    since = _since(days)
     rows = [enrich(dict(r)) for r in journal.q("SELECT * FROM trades WHERE setup=? ORDER BY id DESC LIMIT ?", (name, int(limit)))]
+    try:
+        from . import postmortem as pm
+        revs = {r["trade_id"]: r["review"] for r in pm.reviews(journal, name)}
+        for r in rows:
+            rv = revs.get(r["id"])
+            r["review"] = rv
+            r["review_text"] = pm.verdict_text(rv) if rv else None
+    except Exception:  # noqa: BLE001
+        pass
     if mode:
         rows = [r for r in rows if r["mode"] == mode]
     if since:

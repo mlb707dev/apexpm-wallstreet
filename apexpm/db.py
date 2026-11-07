@@ -85,6 +85,17 @@ CREATE TABLE IF NOT EXISTS daily_reports (
     rejections INTEGER,
     notes TEXT
 );
+CREATE TABLE IF NOT EXISTS trade_reviews (
+    trade_id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,
+    setup TEXT NOT NULL,
+    review TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS brain (
+    name TEXT PRIMARY KEY,
+    ts TEXT NOT NULL,
+    lessons TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS state (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -116,6 +127,7 @@ MIGRATIONS = [
     ("trades", "contract", "TEXT"),
     ("rejections", "session_date", "TEXT"),
     ("scans", "session_date", "TEXT"),
+    ("trades", "signal_entry", "REAL"),      # the price the signal asked for; entry becomes the fill
 ]
 
 
@@ -165,6 +177,7 @@ class Journal:
         row.setdefault("opened_at", utcnow())
         row.setdefault("session_date", et_date(datetime.fromisoformat(row["opened_at"])))
         row.setdefault("initial_stop", row.get("stop"))
+        row.setdefault("signal_entry", row.get("entry"))
         cols = ", ".join(row)
         marks = ", ".join("?" for _ in row)
         with self.tx() as c:

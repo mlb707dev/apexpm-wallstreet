@@ -3,7 +3,7 @@ not giving profits back. Runs on the bot (it needs the journal), in the daily re
 /api/audit. It never trades and never demotes on its own: a strategy that is losing with enough
 trades to mean it becomes a pending decision for the owner (registry.propose), journaled.
 
-Per strategy in the paper/live books (trades closed since the ladder reset):
+Per strategy in the paper/live books (all closed trades, or the last N days when asked):
   n, expectancy R, profit factor, win rate, last-10 expectancy
   overhold share    trades that reached the target level but did not exit at target (gave the move back)
   stop share        trades that ended on the initial stop
@@ -15,7 +15,7 @@ closed below half of a positive peak "gave back".
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 DEMOTE_MIN_N = 20          # trades since the ladder reset before a losing strategy is put to the owner
 DEMOTE_MAX_EXP = -0.10     # R
@@ -79,8 +79,16 @@ def day_giveback(journal, since: str) -> Dict[str, Any]:
     return {"days": days, "gave_back_days": sum(1 for x in days if x["gave_back"]), "total_days": len(days)}
 
 
-def audit(journal, registry, cfg) -> Dict[str, Any]:
-    since = journal.get_state("ladder_reset_at") or ""
+def _since_days(days: Optional[int]) -> str:
+    if not days:
+        return ""
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+
+
+def audit(journal, registry, cfg, days: Optional[int] = None) -> Dict[str, Any]:
+    """All-time by default (the owner's rule: learn from every trade); days= narrows the window."""
+    since = _since_days(days)
     from . import variants as variantsmod
     expected = {}
     for v in variantsmod.rows(journal):
@@ -113,7 +121,7 @@ def audit(journal, registry, cfg) -> Dict[str, Any]:
 
 
 def audit_lines(a: Dict[str, Any]) -> List[str]:
-    lines = ["## Auditor (book vs evidence, since the ladder reset)", ""]
+    lines = ["## Auditor (book vs evidence, all time)", ""]
     if not a["strategies"]:
         lines.append("- no strategy in the paper/live books")
     for s in a["strategies"]:

@@ -405,16 +405,33 @@ class Api:
         from .readiness import readiness
         return readiness(self.j, self.cfg)
 
-    def strategy_analytics(self, since_reset: bool = True) -> Dict[str, Any]:
-        """Three tiers (active = live book, paper, lab = shadow) with attainment trend and extremes per strategy."""
+    def strategy_analytics(self, days: int = 0) -> Dict[str, Any]:
+        """Three tiers (active = live book, paper, lab = shadow) with attainment trend and extremes per strategy.
+        All time by default; days narrows to the last 1/7/30/90 days."""
         from . import strategy_analytics as sa
         variantsmod.register_all(self.reg, self.j)
-        return sa.tiers(self.j, self.reg, since_reset=since_reset)
+        return sa.tiers(self.j, self.reg, days=days or None)
 
-    def strategy_trades(self, name: str, mode: str = "", limit: int = 500, since_reset: bool = False) -> Dict[str, Any]:
-        """The drill-down: one strategy's trade history with derived fields and filters."""
+    def strategy_trades(self, name: str, mode: str = "", limit: int = 500, days: int = 0) -> Dict[str, Any]:
+        """The drill-down: one strategy's trade history with derived fields, replays and filters."""
         from . import strategy_analytics as sa
-        return sa.trades_for(self.j, name, mode=mode, limit=limit, since_reset=since_reset)
+        return sa.trades_for(self.j, name, mode=mode, limit=limit, days=days or None)
+
+    def brain(self) -> Dict[str, Any]:
+        from . import brain as brainmod
+        return {"lessons": brainmod.lessons(self.j), "hints": brainmod.hints(self.j)}
+
+    def warden(self) -> Dict[str, Any]:
+        from . import warden as wardenmod
+        return {"last": wardenmod.last(self.j), "patrol_every_min": wardenmod.PATROL_EVERY_MIN}
+
+    def harness_report(self, source: str, detail: dict) -> Dict[str, Any]:
+        """A harness job elsewhere (the Mac's nightly tuner) reports that it ran, so the warden can see it."""
+        src = "".join(ch for ch in str(source) if ch.isalnum() or ch in "_-")[:32] or "harness"
+        with self.j.tx() as c:
+            c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (datetime('now'), ?, 'ran', ?)",
+                      (src, json.dumps(detail)[:4000]))
+        return {"ok": True, "source": src}
 
     def audit(self) -> Dict[str, Any]:
         """Auditor pass: book vs evidence, giveback, and any demotion proposals it files (owner decides)."""
@@ -600,6 +617,7 @@ def make_handler(api: Api, token: str = ""):
                 "/api/rejections": api.rejections, "/api/events": api.events, "/api/reports": api.reports, "/api/weekly": api.weekly_reports, "/api/readiness": api.readiness,
                 "/api/plan": api.plan, "/api/settings": api.settings, "/api/calendar": api.calendar,
                 "/api/decisions": api.decisions, "/api/news": api.news, "/api/variants": api.variants, "/api/audit": api.audit,
+                "/api/brain": api.brain, "/api/warden": api.warden,
             }
             if path == "/api/rejections/rows":
                 from urllib.parse import parse_qs
@@ -610,10 +628,10 @@ def make_handler(api: Api, token: str = ""):
                 qs = parse_qs(urlparse(self.path).query)
                 g = lambda k, d="": qs.get(k, [d])[0]  # noqa: E731
                 try:
+                    days = max(0, min(int(g("days", "0") or 0), 3650))
                     if path == "/api/strategy/analytics":
-                        return self._json(api.strategy_analytics(since_reset=g("all", "0") != "1"))
-                    return self._json(api.strategy_trades(g("name"), mode=g("mode"), limit=max(1, min(int(g("limit", "500") or 500), 5000)),
-                                                          since_reset=g("since_reset", "0") == "1"))
+                        return self._json(api.strategy_analytics(days=days))
+                    return self._json(api.strategy_trades(g("name"), mode=g("mode"), limit=max(1, min(int(g("limit", "500") or 500), 5000)), days=days))
                 except Exception as exc:  # noqa: BLE001
                     return self._json({"error": str(exc)}, 500)
             if path in routes:
@@ -654,6 +672,8 @@ def make_handler(api: Api, token: str = ""):
                 return self._json(api.set_positions_exception(bool(body.get("on")), str(body.get("note", ""))))
             if path == "/api/variants/submit":
                 return self._json(api.submit_variants(body.get("variants") or [], str(body.get("source", "tuner"))))
+            if path == "/api/harness/report":
+                return self._json(api.harness_report(str(body.get("source", "harness")), body.get("detail") or {}))
             if path == "/api/settings/ladder_reset":
                 return self._json(api.ladder_reset(str(body.get("confirm", "")), str(body.get("note", ""))))
             if path == "/api/settings/pause":
@@ -670,7 +690,7 @@ def serve(cfg: Config, port: Optional[int] = None, block: bool = True,
           journal: Optional[Journal] = None) -> HTTPServer:
     """Serve the dashboard. Pass the bot's own Journal when running in-process so
     both share one locked connection."""
-    port = port or cfg.dashboard_port
+    port = cfg.dashboard_port if port is None else port      # 0 = any free port (tests)
     bind = cfg.dashboard_bind
     if bind not in ("127.0.0.1", "localhost") and not cfg.dashboard_token:
         raise RuntimeError("refusing to bind the dashboard beyond localhost without DASHBOARD_TOKEN")
