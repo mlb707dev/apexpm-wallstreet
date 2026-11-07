@@ -99,7 +99,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 19</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 20</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -173,6 +173,9 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   <div class="card"><h3>Connection</h3>
     <p>API address: <span class="mono" id="s_api">(this server)</span></p>
     <div class="actions"><button class="btn" onclick="logout()">Sign out</button></div></div>
+  <div class="card"><h3>Capital ladder</h3>
+    <p>After resetting the paper account at the broker, start a new ladder so Started with, the go-live drawdown and the banger peak restart at the new equity. The bot also detects a reset on its own when equity jumps with no trades that day.</p>
+    <div class="actions"><button class="btn warn" onclick="ladderReset()">Start new ladder at current equity</button></div></div>
 </section>
 </main>
 
@@ -406,9 +409,19 @@ async function loadStrategies(){
     const st = s.stats;
     const stats = st ? `<div class="kv" style="margin-top:8px"><div><div class="k">Trades</div><div class="v sm">${st.trades}</div></div><div><div class="k">Win</div><div class="v sm">${Math.round(st.win_rate*100)}%</div></div><div><div class="k">Exp</div><div class="v sm ${cls(st.expectancy_r)}">${(st.expectancy_r>=0?'+':'')+fmt(st.expectancy_r)}R</div></div><div><div class="k">P&amp;L (all)</div><div class="v sm ${cls(st.pnl)}">${money(st.pnl)}</div></div><div><div class="k">PF</div><div class="v sm">${st.profit_factor==null?'—':(st.profit_factor>99?'∞':fmt(st.profit_factor))}</div></div><div><div class="k">Max DD</div><div class="v sm">${fmt(st.max_dd_r)}R</div></div></div>` : '<p>No closed trades yet.</p>';
     const lr = s.live_readiness; const lrTxt = lr ? (lr.ready ? '<span class="pos">live bar met</span>' : 'live bar: '+lr.checks.filter(c=>!c.ok).map(c=>c.name+' ('+c.value+')').join(' · ')) : '';
-    const act = (s.status==='suspended'||s.status==='research') ? `<button class="btn ok" onclick="setStatus('${s.name}','paper')">Promote to paper</button>` : `<button class="btn warn" onclick="setStatus('${s.name}','suspended')">Suspend</button>`;
-    return `<div class="card" style="background:var(--bg3)"><h3>${s.name}<span class="chip ${s.status}">${s.label||s.status} · ${s.book}</span></h3><p>${s.description}</p><p class="mono">mode ${s.mode} · ${s.symbols.join(', ')}</p>${stats}<p class="ago" style="margin-top:6px">${lrTxt}</p><div class="actions">${act}<button class="btn" onclick="setStatus('${s.name}','research')">To research</button></div></div>`;
+    const act = (s.status==='suspended'||s.status==='research') ? `<button class="btn ok" onclick="setStatus('${s.name}','paper')">Promote to paper</button>` : (s.status==='retired' ? '' : `<button class="btn warn" onclick="setStatus('${s.name}','suspended')">Suspend</button>`);
+    const v = s.variant; let vTxt = '';
+    if(v && v.evidence && v.evidence.pooled){ const p = v.evidence.pooled; const f = x => (x.exp>=0?'+':'')+fmt(x.exp,3)+'R n'+x.n;
+      vTxt = `<p class="mono" style="margin-top:6px">tuned from ${v.base} · ${(v.created_at||'').slice(0,10)}<br>time-split: train ${f(p.train)} · validate ${f(p.val)} · test ${f(p.test)} pf ${fmt(p.test.pf)}</p>`; }
+    return `<div class="card" style="background:var(--bg3)"><h3>${s.name}<span class="chip ${s.status}">${s.label||s.status} · ${s.book}</span></h3><p>${s.description}</p><p class="mono">mode ${s.mode} · ${s.symbols.join(', ')}</p>${vTxt}${stats}<p class="ago" style="margin-top:6px">${lrTxt}</p><div class="actions">${act}${s.status==='retired'?'':`<button class="btn" onclick="setStatus('${s.name}','research')">To research</button>`}</div></div>`;
   }).join('');
+}
+async function ladderReset(){
+  const confirm = await ask('Start a new ladder at the current equity', 'Resets Started with, the go-live drawdown curve and the banger peak. Trades stay in the journal. Type reset to continue.');
+  if(confirm===null) return;
+  const note = await ask('Why?', 'e.g. paper account reset to $1,000'); if(note===null) return;
+  const r = await api('/api/settings/ladder_reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm,note})});
+  if(!r.ok) toast('Error: '+r.error); else toast('Ladder reset queued: applied on the bot\'s next pass');
 }
 async function loadSettings(){
   $('#s_api').textContent = LS.api || '(this server)';

@@ -152,6 +152,9 @@ class Registry:
         trades, it has >= cfg.ready_min_trades, positive expectancy, and a drawdown within
         cfg.ready_max_dd_pct of the ladder start. No override."""
         rows = [r for r in self.journal.closed_trades(name) if r["mode"] == "PAPER" and r["rr_realized"] is not None]
+        since = self.journal.get_state("ladder_reset_at")
+        if since:
+            rows = [r for r in rows if (r["closed_at"] or "") >= since]
         n = len(rows)
         exp = (sum(r["rr_realized"] for r in rows) / n) if n else None
         start = float(self.journal.get_state("ladder_start") or self.journal.get_state("starting_equity") or 0) or 0.0

@@ -76,6 +76,29 @@ class Strategy:
     def params(self, cfg):
         return _Params(cfg, self.overrides) if self.overrides else cfg
 
+    def knob(self, cfg, key: str, default):
+        """Tunable read: this strategy's override, else the global config, else the class default."""
+        if key in self.overrides:
+            return self.overrides[key]
+        return getattr(cfg, key, default)
+
+    def session_ok(self, snap: MarketSnapshot, cfg) -> Optional[str]:
+        """Per-strategy session knobs applied the same way live and in the backtester:
+        entry_before_min  no new signal after N minutes into the session
+        entry_after_min   no new signal before N minutes into the session
+        Returns a rejection reason or None."""
+        before = self.knob(cfg, "entry_before_min", None)
+        after = self.knob(cfg, "entry_after_min", None)
+        if before is not None and snap.minutes_since_open > int(before):
+            return "entry_window"
+        if after is not None and snap.minutes_since_open < int(after):
+            return "entry_window"
+        return None
+
+    def conviction_min(self, cfg) -> int:
+        """Per-strategy conviction floor (override), never below the global floor."""
+        return max(int(getattr(cfg, "conviction_min", 0) or 0), int(self.overrides.get("conviction_min", 0) or 0))
+
     def evaluate(self, snap: MarketSnapshot, cfg) -> tuple:
         """Return (Signal | None, rejection_reason | None)."""
         raise NotImplementedError

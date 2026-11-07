@@ -28,6 +28,7 @@ from .config import Config
 from .db import Journal, et_date
 from .registry import Registry
 from .strategies import ExampleBreakout
+from . import variants as variantsmod
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dashboard")
 STATIC_FILES = {"/manifest.json": "manifest.json", "/sw.js": "sw.js"}
@@ -43,6 +44,7 @@ class Api:
         self.j = journal
         self.reg = Registry(journal, cfg)
         self.reg.register(ExampleBreakout(), "paper")
+        variantsmod.register_all(self.reg, self.j)
         cal.ensure_table(journal)
         self._news = NewsFeed(cfg, journal) if cfg.news_enabled else None
         self._broker = None
@@ -235,6 +237,38 @@ class Api:
         profiles.set_positions_exception(self.j, on, f"dashboard: {note}" if note else "dashboard")
         return {"ok": True, "positions_exception": on}
 
+    def ladder_reset(self, confirm: str, note: str) -> Dict[str, Any]:
+        """Owner asks for a new ladder at the current equity (after a paper reset or a deposit).
+        The loop applies it on its next pass so the broker equity it anchors to is live."""
+        if (confirm or "").strip().lower() != "reset":
+            return {"ok": False, "error": "type reset to confirm"}
+        self.j.set_state("ladder_reset_requested", "1")
+        with self.j.tx() as c:
+            c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (datetime('now'), 'portfolio', 'ladder_reset_requested', ?)",
+                      (f"dashboard: {note}" if note else "dashboard",))
+        return {"ok": True, "pending": True}
+
+    def variants(self) -> List[dict]:
+        variantsmod.register_all(self.reg, self.j)
+        out = []
+        for r in variantsmod.rows(self.j, active_only=False):
+            st = self.reg.stats(r["name"]) if r["name"] in self.reg._entries else None
+            out.append({**r, "status": self.reg.status(r["name"]) if r["name"] in self.reg._entries else "retired",
+                        "stats": st.__dict__ if st else None})
+        return out
+
+    def submit_variants(self, specs: List[dict], source: str) -> Dict[str, Any]:
+        if not isinstance(specs, list) or not specs:
+            return {"ok": False, "error": "no variants"}
+        for s in specs:
+            ev = (s.get("evidence") or {}).get("pooled") or {}
+            if not all(k in ev for k in ("train", "val", "test")):
+                return {"ok": False, "error": "evidence missing: train/val/test pooled stats required"}
+            if not all(float(ev[k].get("exp", 0)) > 0 for k in ("train", "val", "test")):
+                return {"ok": False, "error": f"{s.get('base')}: refused, a split is not positive"}
+        res = variantsmod.submit(self.reg, self.j, specs, source=source or "tuner")
+        return {"ok": True, **res}
+
     def set_paused(self, paused: bool, note: str) -> Dict[str, Any]:
         profiles.set_entries_paused(self.j, paused, f"dashboard: {note}" if note else "dashboard")
         return {"ok": True, "entries_paused": paused}
@@ -270,13 +304,17 @@ class Api:
 
     def strategies(self) -> list:
         out = []
+        variantsmod.register_all(self.reg, self.j)
+        vrows = {r["name"]: r for r in variantsmod.rows(self.j, active_only=False)}
         for n in self.reg.names():
             st = self.reg.stats(n)
             e = self.reg._entries[n]
+            v = vrows.get(n)
             out.append({"name": n, "description": e.strategy.description, "status": self.reg.status(n),
                         "book": self.reg.book(n), "label": self.reg.label(n),
                         "mode": self.reg.mode_for(n), "symbols": e.symbols, "stats": st.__dict__ if st else None,
-                        "live_readiness": self.reg.live_readiness(n)})
+                        "live_readiness": self.reg.live_readiness(n),
+                        "variant": {"base": v["base"], "overrides": v["overrides"], "evidence": v["evidence"], "created_at": v["created_at"]} if v else None})
         return out
 
     def analytics(self) -> Dict[str, Any]:
@@ -532,7 +570,7 @@ def make_handler(api: Api, token: str = ""):
                 "/api/trades": api.trades, "/api/strategies": api.strategies, "/api/analytics": api.analytics,
                 "/api/rejections": api.rejections, "/api/events": api.events, "/api/reports": api.reports, "/api/weekly": api.weekly_reports, "/api/readiness": api.readiness,
                 "/api/plan": api.plan, "/api/settings": api.settings, "/api/calendar": api.calendar,
-                "/api/decisions": api.decisions, "/api/news": api.news,
+                "/api/decisions": api.decisions, "/api/news": api.news, "/api/variants": api.variants,
             }
             if path == "/api/rejections/rows":
                 from urllib.parse import parse_qs
@@ -574,6 +612,10 @@ def make_handler(api: Api, token: str = ""):
                 return self._json(api.run_weekly(str(body.get("week_end", "")), bool(body.get("email"))))
             if path == "/api/settings/positions_exception":
                 return self._json(api.set_positions_exception(bool(body.get("on")), str(body.get("note", ""))))
+            if path == "/api/variants/submit":
+                return self._json(api.submit_variants(body.get("variants") or [], str(body.get("source", "tuner"))))
+            if path == "/api/settings/ladder_reset":
+                return self._json(api.ladder_reset(str(body.get("confirm", "")), str(body.get("note", ""))))
             if path == "/api/settings/pause":
                 return self._json(api.set_paused(bool(body.get("paused")), str(body.get("note", ""))))
             return self._json({"ok": False, "error": "not_found"}, 404)

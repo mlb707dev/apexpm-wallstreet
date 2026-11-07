@@ -37,6 +37,7 @@ from .stream import FastLayer
 from .news import NewsFeed
 from .options_exec import OptionsWrapper, size_contracts
 from .strategies import ExampleBreakout
+from . import variants
 from .strategies.base import MarketSnapshot, Signal
 from .webhook import WebhookServer
 
@@ -69,6 +70,7 @@ class Bot:
         self.feed = feed or DataFeed(cfg)
         self.registry = Registry(self.journal, cfg)
         self.registry.register(ExampleBreakout(), "paper")
+        variants.register_all(self.registry, self.journal)   # tuned challengers (shadow book)
         self.obroker = OptionsBroker(cfg, self.broker)
         if cfg.options_enabled:
             chain = (lambda u, a, b: self.obroker.chain(u, a, b)) if self.obroker.connected else (lambda u, a, b: [])
@@ -267,6 +269,11 @@ class Bot:
             self.state.starting_equity = acct.equity
             self.journal.set_state(f"starting_equity:{today}", str(acct.equity))
             self.journal.set_state("starting_equity", str(acct.equity))
+            if self.cfg.paper:
+                self._ladder_reset(acct.equity, today, "paper account reset detected")
+        if self.journal.get_state("ladder_reset_requested") == "1":
+            self.journal.set_state("ladder_reset_requested", "0")
+            self._ladder_reset(acct.equity, today, "owner request (dashboard)")
         ks = riskmod.check_kill_switch(self.state, self.cfg.kill_dd_pct)
         if ks:
             self.journal.set_state(f"halted:{today}", "1")
@@ -335,6 +342,22 @@ class Bot:
                                                            "ts": now_utc.isoformat(timespec="seconds")}))
         except Exception as exc:  # noqa: BLE001
             self.log.warning("vix fetch failed: %s", exc)
+
+    def _ladder_reset(self, equity: float, today: str, why: str) -> None:
+        """Start a new capital ladder at the current equity: the 'Started with' figure, the
+        readiness drawdown curve and the banger peak all restart here. Trades stay journaled."""
+        self.journal.set_state("ladder_start", str(equity))
+        self.journal.set_state("ladder_reset_at", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+        self.journal.set_state(f"starting_equity:{today}", str(equity))
+        self.journal.set_state("starting_equity", str(equity))
+        self.journal.set_state(f"banger_peak:{today}", "0")
+        self.journal.set_state(f"banger_active:{today}", "")
+        if self.state is not None:
+            self.state.starting_equity = equity
+        with self.journal.tx() as c:
+            c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (datetime('now'), 'portfolio', 'ladder_reset', ?)",
+                      (f"{why}: ladder restarts at {equity:.2f}",))
+        self.log.warning("LADDER RESET at %.2f (%s)", equity, why)
 
     def _banger_check(self, today: str) -> riskmod.BangerDecision:
         """Day gain = realized + unrealized today; peak and active flag persist per session date."""
@@ -409,6 +432,10 @@ class Bot:
             [e.strategy for e in self.registry._entries.values() if not getattr(e.strategy, "inner", None)]
         for strat in active + observing:
             observe_only = strat in observing
+            why = strat.session_ok(snap, self.cfg)
+            if why:
+                reject(symbol, strat.name, why)
+                continue
             sig, why = strat.evaluate(snap, self.cfg)
             if sig is None:
                 if why not in ("not_at_entry_level",):
@@ -422,7 +449,7 @@ class Bot:
                 reject(symbol, strat.name, "research_observed", sig.direction,
                        json.dumps({"entry": sig.entry, "stop": sig.stop, "target": sig.target, "conviction": conv.score}))
                 continue
-            conv_min = max(self.cfg.conviction_min, banger.conviction_min if banger and banger.active else 0)
+            conv_min = max(strat.conviction_min(self.cfg), banger.conviction_min if banger and banger.active else 0)
             if conv.score < conv_min:
                 reject(symbol, strat.name, f"low_conviction:{conv.score}" + (":banger" if banger and banger.active else ""),
                        sig.direction, json.dumps(conv.factors))
@@ -794,6 +821,9 @@ class Bot:
         self.log.info("loop every %ds; fast layer %s", self.cfg.scan_interval_sec, "on" if self.fast else "off")
         while True:
             try:
+                added = safe(variants.register_all, self.registry, self.journal) or []
+                for name in added:
+                    self.log.info("variant registered in the shadow book: %s", name)
                 if self.broker.clock_is_open():
                     self.check_exits()
                     self.scan_once()

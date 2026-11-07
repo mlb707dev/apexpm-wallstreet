@@ -310,12 +310,16 @@ class Backtester:
                                       prev_ribbon_ltf=prev_rl, prev2_ribbon_ltf=prev2_rl,
                                       bar_open=o, bar_high=hi, bar_low=lo, prev_close=prev_close, prev2_close=prev2_close,
                                       bar_volume=float(bar.get("volume", 0.0)), vol_avg20=vol_avg)
+                why = self.strategy.session_ok(snap, cfg)
+                if why:
+                    rej(why)
+                    continue
                 sig, why = self.strategy.evaluate(snap, cfg)
                 if sig is None:
                     if why and why != "not_at_entry_level":
                         rej(why)
                     continue
-                cmin = getattr(cfg, "conviction_min", 0)
+                cmin = self.strategy.conviction_min(cfg)
                 if cmin > 0:
                     lo_i = max(0, gi - 80)
                     conv = conviction_score(sig.direction, snap, ltf["close"].values[lo_i:gi + 1],

@@ -81,6 +81,15 @@ def daily_review(bot, date_iso: str = None) -> str:
             base += (f" | last {st.trades}: win {st.win_rate:.0%}, exp {st.expectancy_r:+.2f}R, "
                      f"pf {st.profit_factor:.2f}, dd {st.max_dd_r:.1f}R, discipline {st.level_discipline:.0%}")
         lines.append(base)
+    from . import variants as variantsmod
+    vrows = variantsmod.rows(j)
+    if vrows:
+        lines += ["", "## Tuned variants (shadow until promoted)", ""]
+        for v in vrows:
+            shadow = j.q1("SELECT COUNT(*) AS n FROM rejections WHERE session_date=? AND setup=? AND reason='research_observed'", (date, v["name"]))
+            t = (v.get("evidence") or {}).get("pooled", {}).get("test", {})
+            lines.append(f"- {v['name']} ({v['base']}): {reg.status(v['name']) if v['name'] in reg._entries else 'retired'}, "
+                         f"symbols {', '.join(v['symbols'])}, test {t.get('exp', 0):+.3f}R n{t.get('n', 0)}, shadow signals today {shadow['n'] if shadow else 0}")
     actions = reg.review()
     lines += ["", "## Governance actions", ""] + ([f"- {a}" for a in actions] or ["- none"])
     pend = reg.decisions("pending")

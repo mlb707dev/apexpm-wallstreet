@@ -86,6 +86,28 @@ promotion.
 - Nothing leaves quarantine on its own. The lab tunes, re-backtests, and a
   human promotes with evidence.
 
+## Tuning loop (each strategy progresses on its own)
+
+Every base strategy declares a search space of knobs (direction, hold time,
+target distance, which confirmations are required, session window, conviction
+floor). A tuner run samples combinations it has never evaluated, backtests each
+on every paper symbol with next-open fills, and scores it on three time
+splits: train, validate, test. The results store remembers every
+(combination, symbol) ever run, so the search keeps widening night after
+night instead of circling the current recipe.
+
+A challenger is proposed only when every pooled split is positive with enough
+trades, the test profit factor clears a floor, and it beats the incumbent on
+both validate and test by a margin. Its symbol allowlist is the set of symbols
+where validate and test are both positive, so a variant is tracked per asset.
+
+Proposals are journal rows (`variants`): the dashboard accepts them over the
+authenticated API, refuses any without positive evidence on all three splits,
+and the bot registers them in the shadow book on its next pass. One unpromoted
+challenger per base; a newer one retires the older unless the owner already
+promoted it. Promotion to paper or live goes through the same gate as every
+strategy. The tuner never trades.
+
 ## Journal durability
 
 The journal lives on a persistent disk at the host. A paper account reset changes
