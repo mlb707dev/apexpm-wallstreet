@@ -425,6 +425,31 @@ class Api:
         from . import warden as wardenmod
         return {"last": wardenmod.last(self.j), "patrol_every_min": wardenmod.PATROL_EVERY_MIN}
 
+    def backup_bytes(self) -> bytes:
+        """The whole journal as one SQLite file (consistent snapshot). Token-gated like every /api route."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "apexpm-backup.db")
+            self.j.snapshot(p)
+            with open(p, "rb") as f:
+                data = f.read()
+        with self.j.tx() as c:
+            c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (datetime('now'), 'backup', 'served', ?)",
+                      (json.dumps({"bytes": len(data)}),))
+        return data
+
+    def data_status(self) -> Dict[str, Any]:
+        """What we hold, is it healthy, when was it last backed up and where."""
+        h = self.j.health()
+        last_pull = self.j.q1("SELECT ts, detail FROM strategy_events WHERE name='backup' AND event='ran' ORDER BY id DESC LIMIT 1")
+        last_served = self.j.q1("SELECT ts FROM strategy_events WHERE name='backup' AND event='served' ORDER BY id DESC LIMIT 1")
+        try:
+            detail = json.loads(last_pull["detail"]) if last_pull else {}
+        except Exception:  # noqa: BLE001
+            detail = {}
+        return {"journal": h, "last_backup_pulled_at": last_pull["ts"] if last_pull else None, "last_backup_detail": detail,
+                "last_backup_served_at": last_served["ts"] if last_served else None}
+
     def harness_report(self, source: str, detail: dict) -> Dict[str, Any]:
         """A harness job elsewhere (the Mac's nightly tuner) reports that it ran, so the warden can see it."""
         src = "".join(ch for ch in str(source) if ch.isalnum() or ch in "_-")[:32] or "harness"
@@ -617,8 +642,22 @@ def make_handler(api: Api, token: str = ""):
                 "/api/rejections": api.rejections, "/api/events": api.events, "/api/reports": api.reports, "/api/weekly": api.weekly_reports, "/api/readiness": api.readiness,
                 "/api/plan": api.plan, "/api/settings": api.settings, "/api/calendar": api.calendar,
                 "/api/decisions": api.decisions, "/api/news": api.news, "/api/variants": api.variants, "/api/audit": api.audit,
-                "/api/brain": api.brain, "/api/warden": api.warden,
+                "/api/brain": api.brain, "/api/warden": api.warden, "/api/data": api.data_status,
             }
+            if path == "/api/backup":
+                try:
+                    body = api.backup_bytes()
+                except Exception as exc:  # noqa: BLE001
+                    return self._json({"error": str(exc)}, 500)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Disposition", f'attachment; filename="apexpm-journal-{et_date()}.db"')
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self._cors()
+                self.end_headers()
+                self.wfile.write(body)
+                return None
             if path == "/api/rejections/rows":
                 from urllib.parse import parse_qs
                 d = parse_qs(urlparse(self.path).query).get("date", [""])[0]

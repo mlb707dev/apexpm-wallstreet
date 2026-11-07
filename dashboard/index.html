@@ -125,7 +125,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 22</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 23</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -200,6 +200,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   <div class="card"><h3>Connection</h3>
     <p>API address: <span class="mono" id="s_api">(this server)</span></p>
     <div class="actions"><button class="btn" onclick="logout()">Sign out</button></div></div>
+  <div class="card" id="datacard"><h3>Your data</h3><div class="empty">Loading…</div></div>
   <div class="card"><h3>Capital ladder</h3>
     <p>After resetting the paper account at the broker, start a new ladder so Started with, the go-live drawdown and the banger peak restart at the new equity. The bot also detects a reset on its own when equity jumps with no trades that day.</p>
     <div class="actions"><button class="btn warn" onclick="ladderReset()">Start new ladder at current equity</button></div></div>
@@ -305,7 +306,7 @@ function renderBot(b){
     <p style="margin-top:8px">Hard ceilings in config still apply on every profile.</p>`;
 }
 
-const DUTY = {'bot alive':'The bot is running','strategies scanned':'Every strategy looked at today\'s market','postmortems':'Every closed trade has been replayed','brain':'The brain has learned from the latest replays','auditor':'The auditor checked the book','daily review':'The daily report was written','weekly recap':'The weekly recap was written','nightly tuner':'The overnight tuning pass ran'};
+const DUTY = {'journal healthy':'The journal file passes its integrity check','journal backed up':'A verified backup was pulled to the Mac','bot alive':'The bot is running','strategies scanned':'Every strategy looked at today\'s market','postmortems':'Every closed trade has been replayed','brain':'The brain has learned from the latest replays','auditor':'The auditor checked the book','daily review':'The daily report was written','weekly recap':'The weekly recap was written','nightly tuner':'The overnight tuning pass ran'};
 async function loadHarness(){
   try {
     const w = await api('/api/warden'); const l = w.last; const el = $('#harness');
@@ -573,6 +574,25 @@ async function ladderReset(){
 }
 async function loadSettings(){
   $('#s_api').textContent = LS.api || '(this server)';
+  try {
+    const d = await api('/api/data'); const j = d.journal; const c = j.counts || {};
+    const kb = Math.round((j.size_bytes||0)/1024);
+    $('#datacard').innerHTML = `<h3>Your data <span class="chip ${j.ok?'live':'suspended'}">${j.ok?'healthy':'check failed'}</span></h3>
+      <p>Everything the bot has seen since launch lives in one journal file on the server: every trade, every signal it passed on, every daily report, every replay and lesson. Nothing is deleted when the account resets.</p>
+      <div class="kv" style="margin-top:8px"><div><div class="k">Trades on record</div><div class="v sm">${c.trades??'—'}</div></div><div><div class="k">Signals passed on</div><div class="v sm">${c.rejections??'—'}</div></div><div><div class="k">Daily reports</div><div class="v sm">${c.daily_reports??'—'}</div></div><div><div class="k">Trades replayed</div><div class="v sm">${c.trade_reviews??'—'}</div></div><div><div class="k">Journal size</div><div class="v sm">${kb} KB</div></div><div><div class="k">First trade</div><div class="v sm">${j.first_trade_at?whenDay(j.first_trade_at):'—'}</div></div></div>
+      <p style="margin-top:10px">Nightly, the Mac pulls a verified copy and writes spreadsheet exports (data/backups and data/exports in the project folder). Last copy pulled: <b>${d.last_backup_pulled_at?when(d.last_backup_pulled_at):'never yet'}</b>${d.last_backup_detail&&d.last_backup_detail.trades!=null?` (${d.last_backup_detail.trades} trades, integrity ${d.last_backup_detail.integrity})`:''}.</p>
+      <div class="actions"><button class="btn ok" onclick="downloadBackup()">Download the full journal now</button></div>`;
+  } catch(e) { $('#datacard').innerHTML = '<h3>Your data</h3><div class="empty">Could not load: '+e.message+'</div>'; }
+}
+async function downloadBackup(){
+  try {
+    toast('Preparing the backup…');
+    const r = await fetch(LS.api + '/api/backup', {headers: LS.tok ? {Authorization: 'Bearer ' + LS.tok} : {}});
+    if(!r.ok) throw new Error('backup ' + r.status);
+    const b = await r.blob(); const u = URL.createObjectURL(b); const a = document.createElement('a');
+    a.href = u; a.download = 'apexpm-journal-' + new Date().toISOString().slice(0,10) + '.db'; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u), 10000); toast('Backup downloaded (' + Math.round(b.size/1024) + ' KB)');
+  } catch(e) { toast('Backup failed: ' + e.message); }
 }
 async function setStatus(name, status){
   let confirm = '';

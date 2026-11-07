@@ -305,5 +305,26 @@ class Journal:
         r = self.q1("SELECT value FROM state WHERE key=?", (key,))
         return r[0] if r else default
 
+    def snapshot(self, dest_path: str) -> None:
+        """A consistent copy of the whole journal (SQLite online backup) under the shared lock."""
+        import sqlite3 as _sq
+        with self._lock:
+            dst = _sq.connect(dest_path)
+            try:
+                self._conn.backup(dst)
+            finally:
+                dst.close()
+
+    def health(self) -> Dict[str, Any]:
+        """Size, row counts and SQLite's own integrity check: the journal is the product."""
+        import os as _os
+        with self._lock:
+            ok = self._conn.execute("PRAGMA quick_check").fetchone()[0]
+            counts = {t: self._conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                      for t in ("trades", "rejections", "scans", "daily_reports", "trade_reviews", "brain")}
+            first = self._conn.execute("SELECT MIN(opened_at) FROM trades").fetchone()[0]
+        size = _os.path.getsize(self.path) if self.path != ":memory:" and _os.path.exists(self.path) else 0
+        return {"ok": ok == "ok", "check": ok, "size_bytes": size, "counts": counts, "first_trade_at": first, "path": self.path}
+
     def close(self) -> None:
         self._conn.close()

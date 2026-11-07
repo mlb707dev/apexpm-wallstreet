@@ -13,6 +13,8 @@ Duties it patrols (each with the evidence it looks for, and the repair it is all
   weekly recap           the last Friday's recap exists by Saturday              repair: write it
   nightly tuner          the Mac's evolve pass reported within 36 hours
                          (Tuesday to Saturday)                                  no repair; flagged
+  journal healthy        SQLite quick_check passes                               no repair; flagged
+  journal backed up      the Mac pulled a backup within 36 hours (Tue-Sat)       no repair; flagged
 
 A duty that still fails after its repair becomes one pending decision for the owner per day, so a
 silent harness cannot stay silent. The warden never trades, never promotes, never changes settings.
@@ -175,6 +177,18 @@ def duties(journal, registry, cfg, bot=None) -> List[Dict[str, Any]]:
         ts = _event_within(journal, "evolve", "ran", 36)
         return bool(ts), (f"nightly pass reported {ts}" if ts else "no nightly tuner report in 36 hours (the Mac job did not run or could not reach the bot)")
     out.append({"name": "nightly tuner", "check": evolved, "repair": None})
+
+    def healthy():
+        h = journal.health()
+        return h["ok"], (f"journal {h['size_bytes'] // 1024} KB, {h['counts'].get('trades', 0)} trades, integrity {h['check']}")
+    out.append({"name": "journal healthy", "check": healthy, "repair": None})
+
+    def backed_up():
+        if now_et.weekday() in (0, 6):
+            return True, "no backup expected after the weekend"
+        ts = _event_within(journal, "backup", "ran", 36)
+        return bool(ts), (f"last backup pulled {ts}" if ts else "no backup pulled in 36 hours (the Mac's nightly job did not run or could not reach the bot)")
+    out.append({"name": "journal backed up", "check": backed_up, "repair": None})
     return out
 
 

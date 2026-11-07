@@ -180,3 +180,17 @@ Windows (24h / 7d / 30d / 90d) are for reporting only; a ladder reset never hide
   patrol; the Overview card "Is every job getting done?" renders it.
 - The daily review now carries the Brain and Warden sections after the Auditor.
 - `trades.signal_entry` keeps the price the signal asked for (entry becomes the fill) so slippage is real.
+
+## Data retention (2026-11-07)
+
+The journal (one SQLite file on the Render disk) is the product: every trade, rejection, scan, report,
+replay and lesson since launch, never pruned by a ladder reset. Protection:
+- `Journal.snapshot()` (SQLite online backup under the shared lock) and `Journal.health()` (quick_check,
+  counts, size).
+- `GET /api/backup` (token-gated) streams a consistent snapshot; `GET /api/data` shows health and the
+  last backup. The Settings tab has "Download the full journal now".
+- `scripts/backup.py` runs nightly from `scripts/tune_nightly.sh` before the tuner: pulls the snapshot
+  to `data/backups/apexpm-<date>.db` (kept 60 days, Sundays forever, `latest.db` always newest),
+  verifies integrity, writes CSV exports to `data/exports/<date>/` (`latest` symlink), and reports to
+  `POST /api/harness/report` as source "backup". Both folders are gitignored (private data).
+- Warden duties "journal healthy" (every patrol) and "journal backed up" (within 36h, Tue-Sat).
