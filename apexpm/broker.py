@@ -26,6 +26,7 @@ class Account:
     equity: float
     cash: float
     buying_power: float
+    shorting_enabled: bool = True
 
 
 @dataclass
@@ -59,7 +60,8 @@ class Broker:
             return Account(equity=100_000.0, cash=100_000.0, buying_power=100_000.0)
         a = self._client.get_account()
         return Account(equity=float(a.equity), cash=float(a.cash),
-                       buying_power=float(a.buying_power))
+                       buying_power=float(a.buying_power),
+                       shorting_enabled=bool(getattr(a, "shorting_enabled", True)))
 
     def positions(self) -> List[Position]:
         if not self._client:

@@ -32,11 +32,17 @@ BANDS = [(1000.0, "hyper"), (5000.0, "growth"), (10000.0, "growth"), (50000.0, "
 BAND_RULES = [
     # risk_abs = max share of equity in one trade (owner, 2026-11-01: "as much as full up to $1k,
     # then scale back slightly as we grow to $5k"). In-trade stops still cap the loss per trade.
-    (1000.0,        {"daily_loss_pct": 0.0,  "max_positions": 1, "max_trades_per_day": 5, "risk_abs": 1.0}),   # hyper: one at a time, in-trade stops only
-    (5000.0,        {"daily_loss_pct": 0.15, "max_positions": 2, "max_trades_per_day": 5, "risk_abs": 0.75}),
-    (10000.0,       {"daily_loss_pct": 0.10, "max_positions": 3, "max_trades_per_day": 5}),
-    (50000.0,       {"daily_loss_pct": 0.08, "max_positions": 3, "max_trades_per_day": 6}),
-    (float("inf"),  {"daily_loss_pct": 0.06, "max_positions": 3, "max_trades_per_day": 8}),
+    # kill_dd_pct: intraday halt on total-equity drawdown from the session start. It follows the band's
+    # daily loss rule (owner, 2026-11-06: the fixed 5% kill switch was overriding the 15% band and could
+    # halt a $1k day after three stops). 0 = off; KILL_DD_HARD_PCT in config is the backstop that never turns off.
+    # banger_trigger_pct: day gain (share of session-start equity) that switches on profit protection
+    # (quarter size, conviction floor, halt at 80% of peak). Scaled by band so a $10 gain on $1k does not
+    # cap the day (owner, 2026-11-06: "doesn't give back profits" but must be able to grow).
+    (1000.0,        {"daily_loss_pct": 0.0,  "max_positions": 1, "max_trades_per_day": 5, "risk_abs": 1.0,  "kill_dd_pct": 0.0,  "banger_trigger_pct": 0.04}),   # hyper: one at a time, in-trade stops only
+    (5000.0,        {"daily_loss_pct": 0.15, "max_positions": 2, "max_trades_per_day": 5, "risk_abs": 0.75, "kill_dd_pct": 0.15, "banger_trigger_pct": 0.04}),
+    (10000.0,       {"daily_loss_pct": 0.10, "max_positions": 3, "max_trades_per_day": 5, "kill_dd_pct": 0.10, "banger_trigger_pct": 0.03}),
+    (50000.0,       {"daily_loss_pct": 0.08, "max_positions": 3, "max_trades_per_day": 6, "kill_dd_pct": 0.08, "banger_trigger_pct": 0.02}),
+    (float("inf"),  {"daily_loss_pct": 0.06, "max_positions": 3, "max_trades_per_day": 8, "kill_dd_pct": 0.06, "banger_trigger_pct": 0.01}),
 ]
 # Trades per day is a CAP, never a quota (owner, 2026-11-04): the bot never forces a trade to fill it.
 # Owner's rule (2026-11-01): "usually 3 with exception, up to 5". A position is one
@@ -126,10 +132,17 @@ class EffectiveConfig:
         self._p = p
         self.max_positions = cfg.max_positions
         self.max_daily_loss_pct = cfg.max_daily_loss_pct
+        self.kill_dd_pct = cfg.kill_dd_pct
+        self.banger_trigger_pct = cfg.banger_trigger_pct
         if rules:
             self.max_positions = rules["max_positions"]
             self.max_trades_per_day = rules["max_trades_per_day"]
             self.max_daily_loss_pct = rules["daily_loss_pct"]
+            self.kill_dd_pct = rules.get("kill_dd_pct", cfg.kill_dd_pct)
+            self.banger_trigger_pct = rules.get("banger_trigger_pct", cfg.banger_trigger_pct)
+        # the hard backstop never turns off: a band with kill 0 still halts at KILL_DD_HARD_PCT
+        if self.kill_dd_pct <= 0 or self.kill_dd_pct > cfg.kill_dd_hard_pct:
+            self.kill_dd_pct = cfg.kill_dd_hard_pct
         if positions_exception_on:
             self.max_positions = max(self.max_positions, MAX_POSITIONS_HARD)
 

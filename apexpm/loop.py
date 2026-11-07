@@ -284,7 +284,10 @@ class Bot:
         if self.journal.get_state("ladder_reset_requested") == "1":
             self.journal.set_state("ladder_reset_requested", "0")
             self._ladder_reset(acct.equity, today, "owner request (dashboard)")
-        ks = riskmod.check_kill_switch(self.state, self.cfg.kill_dd_pct)
+        self._shorting = bool(getattr(acct, "shorting_enabled", True))
+        band = EffectiveConfig(self.cfg, get_profile(self.journal, self.state.equity), 1.0, self.state.equity)
+        self._band = band
+        ks = riskmod.check_kill_switch(self.state, band.kill_dd_pct)
         if ks:
             self.journal.set_state(f"halted:{today}", "1")
             self.log.error("HALT: %s", ks)
@@ -301,7 +304,6 @@ class Bot:
                 c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (datetime('now'), 'portfolio', 'banger_halt', ?)",
                           (f"gain {self.state.realized_pnl_today:.2f} floor {self._banger.floor:.2f} peak {self._banger.peak_gain:.2f}",))
             return []
-        band = EffectiveConfig(self.cfg, get_profile(self.journal, self.state.equity), 1.0, self.state.equity)
         if band.max_daily_loss_pct > 0:
             cap = min(self.cfg.max_daily_loss, self.state.starting_equity * band.max_daily_loss_pct)
             dl = riskmod.check_daily_loss(self.state, cap)
@@ -384,8 +386,10 @@ class Bot:
         gain = self.state.realized_pnl_today + unreal
         prev_peak = float(self.journal.get_state(f"banger_peak:{today}", "0") or 0)
         was_active = self.journal.get_state(f"banger_active:{today}") == "1"
+        band = getattr(self, "_band", None)
+        trigger = band.banger_trigger_pct if band is not None else self.cfg.banger_trigger_pct
         d = riskmod.banger_update(gain, self.state.starting_equity, prev_peak, was_active,
-                                  trigger_pct=self.cfg.banger_trigger_pct, floor_pct=self.cfg.banger_floor_pct,
+                                  trigger_pct=trigger, floor_pct=self.cfg.banger_floor_pct,
                                   size_mult=self.cfg.banger_size_mult, conviction_min=self.cfg.banger_conviction_min)
         if d.peak_gain != prev_peak:
             safe(self.journal.set_state, f"banger_peak:{today}", str(d.peak_gain))
@@ -508,6 +512,9 @@ class Bot:
                 self.log.info("%s sized down to buying power: %.3f -> %.3f shares (bp %.2f)", symbol, sz.qty, qty, bp)
                 sz = sz.__class__(qty, sz.dollar_risk * qty / sz.qty, sz.kelly_full, sz.kelly_used, sz.vol_scale, qty * snap.price)
                 sig.context["sized_to_buying_power"] = True
+            if sig.direction == "short" and not getattr(self, "_shorting", True):
+                reject(symbol, strat.name, "short:not_enabled", sig.direction)   # cash account: broker would refuse
+                continue
             if sig.direction == "short" and self.cfg.fractional_shares and float(sz.qty) != int(sz.qty):
                 reject(symbol, strat.name, "fractional_short_not_allowed", sig.direction)
                 continue

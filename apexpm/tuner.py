@@ -45,25 +45,43 @@ def combo_key(base: str, overrides: dict) -> str:
     return hashlib.sha1(s.encode()).hexdigest()[:12]
 
 
-def all_combos(base: str) -> List[dict]:
+def _has_short(o: dict) -> bool:
+    return any(k.endswith("_directions") and "short" in (v or []) for k, v in o.items())
+
+
+def long_only_overrides(o: dict) -> dict:
+    """The same recipe restricted to longs (direction lists become ["long"])."""
+    return {k: (["long"] if k.endswith("_directions") else v) for k, v in o.items()}
+
+
+def incumbent_overrides(base: str, long_only: bool = False) -> dict:
+    from .strategies.spaces import INCUMBENTS
+    inc = INCUMBENTS[base]["overrides"]
+    return long_only_overrides(inc) if long_only else inc
+
+
+def all_combos(base: str, long_only: bool = False) -> List[dict]:
+    """long_only drops every combination that would short: a cash account (Alpaca sets 1x and no
+    shorting under $2,000) cannot fill them, so a short-side winner would be a false challenger."""
     from .strategies.spaces import SPACES
     space = SPACES[base]
     keys = list(space)
     out = []
     for vals in itertools.product(*(space[k] for k in keys)):
         o = {k: v for k, v in zip(keys, vals) if v is not None}
+        if long_only and _has_short(o):
+            continue
         out.append(o)
     return out
 
 
-def sample_combos(base: str, n: int, seed: int, exclude: Iterable[str] = ()) -> List[dict]:
+def sample_combos(base: str, n: int, seed: int, exclude: Iterable[str] = (), long_only: bool = False) -> List[dict]:
     """Unexplored combinations first (random order, seeded), incumbent always included."""
-    from .strategies.spaces import INCUMBENTS
     ex = set(exclude)
-    pool = [o for o in all_combos(base) if combo_key(base, o) not in ex]
+    pool = [o for o in all_combos(base, long_only) if combo_key(base, o) not in ex]
     rng = random.Random(seed)
     rng.shuffle(pool)
-    inc = INCUMBENTS[base]["overrides"]
+    inc = incumbent_overrides(base, long_only)
     picked = pool[:n]
     if combo_key(base, inc) not in ex and all(combo_key(base, o) != combo_key(base, inc) for o in picked):
         picked = [inc] + picked[: max(0, n - 1)]
@@ -187,11 +205,12 @@ def assess(base: str, key: str, store: Dict[Tuple[str, str], dict], symbols: Lis
     return c
 
 
-def select(base: str, store: Dict[Tuple[str, str], dict], symbols: List[str]) -> Tuple[Optional[Candidate], Optional[Candidate], List[Candidate]]:
+def select(base: str, store: Dict[Tuple[str, str], dict], symbols: List[str],
+           long_only: bool = False) -> Tuple[Optional[Candidate], Optional[Candidate], List[Candidate]]:
     """Returns (incumbent, challenger-or-None, all assessed candidates sorted by score)."""
-    from .strategies.spaces import INCUMBENTS
-    inc_key = combo_key(base, INCUMBENTS[base]["overrides"])
-    keys = {k for (k, _s) in store if store[(k, _s)]["base"] == base}
+    inc_key = combo_key(base, incumbent_overrides(base, long_only))
+    keys = {k for (k, _s) in store if store[(k, _s)]["base"] == base
+            and not (long_only and _has_short(store[(k, _s)]["overrides"]))}
     cands = []
     for k in keys:
         c = assess(base, k, store, symbols)
@@ -220,14 +239,14 @@ def to_spec(c: Candidate, note: str = "") -> dict:
 
 # ---- orchestration -------------------------------------------------------------------
 def run(bases: List[str], symbols: List[str], n_per_base: int, seed: int, workers: int = 0,
-        store_path: str = STORE, log=print) -> Dict[str, dict]:
+        store_path: str = STORE, log=print, long_only: bool = False) -> Dict[str, dict]:
     """Evaluate unexplored combos, append to the store, then select per base."""
     from concurrent.futures import ProcessPoolExecutor
     store = load_store(store_path)
     tasks = []
     for base in bases:
         explored = {k for (k, s) in store if store[(k, s)]["base"] == base and all((k, sym) in store for sym in symbols)}
-        for ov in sample_combos(base, n_per_base, seed, explored):
+        for ov in sample_combos(base, n_per_base, seed, explored, long_only):
             k = combo_key(base, ov)
             for sym in symbols:
                 if (k, sym) not in store:
@@ -246,7 +265,7 @@ def run(bases: List[str], symbols: List[str], n_per_base: int, seed: int, worker
                     log(f"tuner: {i}/{len(tasks)}")
     out = {}
     for base in bases:
-        inc, best, cands = select(base, store, symbols)
+        inc, best, cands = select(base, store, symbols, long_only)
         out[base] = {"incumbent": inc, "challenger": best, "candidates": cands}
     return out
 

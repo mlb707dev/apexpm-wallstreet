@@ -46,3 +46,15 @@ def test_hyper_sizes_to_half_equity(cfg):
     r = size_trade(equity=500, price=100.0, entry=100.0, stop=98.0, target=104.0, atr=2.0, closed_pnls=[], cfg=e)
     # half the equity at risk / $2 per share, capped by the notional ceiling
     assert r.qty > 0 and r.notional <= 500 * cfg.max_notional_pct + 1e-6
+
+
+def test_kill_switch_and_banger_follow_the_band():
+    from apexpm.config import Config
+    from apexpm.profiles import EffectiveConfig
+    cfg = Config(db_path=":memory:")
+    e = EffectiveConfig(cfg, "growth", 1.0, 1000.0)
+    assert e.kill_dd_pct == 0.15 and e.banger_trigger_pct == 0.04      # $1k-5k band: kill == daily loss rule
+    e = EffectiveConfig(cfg, "hyper", 1.0, 800.0)
+    assert e.kill_dd_pct == cfg.kill_dd_hard_pct == 0.5                # hyper: band kill off, backstop only
+    e = EffectiveConfig(cfg, "standard", 1.0, 100_000.0)
+    assert e.kill_dd_pct == 0.06 and e.banger_trigger_pct == 0.01

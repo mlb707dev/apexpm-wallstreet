@@ -37,11 +37,21 @@ def main():
     ap.add_argument("--workers", type=int, default=0)
     ap.add_argument("--submit", action="store_true")
     ap.add_argument("--url", default=os.environ.get("APEXPM_URL", ""))
+    ap.add_argument("--long-only", default="auto", choices=["auto", "yes", "no"],
+                    help="auto: ask the broker whether the account can short (cash accounts cannot)")
     a = ap.parse_args()
     cfg = Config()
     symbols = [s for s in (a.symbols or ",".join(cfg.symbols)).split(",") if s]
     bases = [b for b in a.bases.split(",") if b]
-    results = tuner.run(bases, symbols, a.n, a.seed, a.workers)
+    long_only = {"yes": True, "no": False}.get(a.long_only)
+    if long_only is None:
+        try:
+            from apexpm.broker import Broker
+            long_only = not Broker(cfg).account().shorting_enabled
+        except Exception:  # noqa: BLE001
+            long_only = True          # offline: assume the small-account default (no shorting)
+    print(f"long-only search: {long_only}")
+    results = tuner.run(bases, symbols, a.n, a.seed, a.workers, long_only=long_only)
     when = date.today().isoformat()
     md = tuner.report_md(results, symbols, when)
     os.makedirs("research/studies", exist_ok=True)

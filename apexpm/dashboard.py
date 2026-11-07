@@ -154,7 +154,7 @@ class Api:
             "effective": {"max_pos_pct": eff.max_pos_pct, "max_trades_per_day": eff.max_trades_per_day,
                           "kelly_fraction": eff.kelly_fraction, "max_positions": eff.max_positions,
                           "max_daily_loss": self.cfg.max_daily_loss, "max_daily_loss_pct": eff.max_daily_loss_pct,
-                          "kill_dd_pct": self.cfg.kill_dd_pct,
+                          "kill_dd_pct": eff.kill_dd_pct, "banger_trigger_pct": eff.banger_trigger_pct,
                           "stop_cooldown_min": self.cfg.stop_cooldown_min},
             "halted": self.j.get_state(f"halted:{et_date()}") == "1",
             "entries_paused": profiles.entries_paused(self.j),
