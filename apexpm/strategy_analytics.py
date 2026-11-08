@@ -227,3 +227,48 @@ def trades_for(journal, name: str, mode: str = "", limit: int = 500, days: Optio
     reasons = sorted({r["exit_reason"] for r in rows if r.get("exit_reason")})
     modes = sorted({r["mode"] for r in rows})
     return {"name": name, "since": since, "summary": s, "trades": rows, "symbols": symbols, "exit_reasons": reasons, "modes": modes}
+
+
+# ---- the master view: every closed trade, every book, with the traits the brain slices by ----
+def _asset_class(t: dict) -> str:
+    sym = t.get("symbol") or ""
+    if "/" in sym:
+        return "crypto"
+    return "options" if (t.get("asset") or "stock") == "option" else "stocks"
+
+
+def _book_of(mode: str) -> str:
+    return {"LIVE": "real money", "PAPER": "practice", "DRY_RUN": "lab"}.get(mode or "", "lab")
+
+
+def master_trades(journal, days: Optional[int] = None, limit: int = 20000) -> Dict[str, Any]:
+    """Every closed trade with its traits, for the single master view. Grouping happens in the page so
+    switching the lens is instant. Source is tagged so other bots' journals can join the same view later."""
+    since = _since(days)
+    rows = [dict(r) for r in journal.q("SELECT * FROM trades WHERE status='closed' AND pnl IS NOT NULL ORDER BY closed_at DESC LIMIT ?", (int(limit),))]
+    if since:
+        rows = [r for r in rows if (r.get("closed_at") or "") >= since]
+    try:
+        from . import postmortem as pm
+        verdicts = {r["trade_id"]: (r["review"] or {}).get("verdict") for r in pm.reviews(journal)}
+    except Exception:  # noqa: BLE001
+        verdicts = {}
+    out = []
+    for raw in rows:
+        n = _notes(raw)
+        t = enrich(raw)
+        mult = 100.0 if (raw.get("asset") or "stock") == "option" else 1.0
+        stop0 = raw.get("initial_stop") or raw.get("stop") or 0.0
+        risk_usd = abs(float(raw["entry"] or 0) - float(stop0 or 0)) * float(raw["qty"] or 0) * mult
+        out.append({
+            "id": t["id"], "source": "wallstreet", "strategy": t["setup"], "book": _book_of(t.get("mode")),
+            "asset": _asset_class(raw), "symbol": t["symbol"], "side": "buy" if t["direction"] == "long" else "short",
+            "opened_at": t["opened_at"], "closed_at": t["closed_at"], "held_min": t.get("held_min"),
+            "r": round(float(t["rr_realized"]), 3) if t.get("rr_realized") is not None else None,
+            "pnl": round(float(t["pnl"]), 2), "pnl_pct": t.get("pnl_pct"), "risk_usd": round(risk_usd, 2),
+            "capital_usd": t.get("cost"), "ended": t.get("exit_reason"), "hit_target": t.get("attained"),
+            "regime": t.get("regime"), "confirmations": n.get("conviction"), "session": n.get("session"),
+            "size_mult": n.get("earned_mult"), "verdict": verdicts.get(t["id"]),
+        })
+    return {"since": since, "days": days or 0, "n": len(out), "trades": out,
+            "sources": sorted({x["source"] for x in out}) or ["wallstreet"]}

@@ -447,6 +447,11 @@ class Api:
         from . import strategy_analytics as sa
         return sa.trades_for(self.j, name, mode=mode, limit=limit, days=days or None)
 
+    def master(self, days: int = 0) -> Dict[str, Any]:
+        """Every closed trade in every book with its traits, for the master view."""
+        from . import strategy_analytics as sa
+        return sa.master_trades(self.j, days=days or None)
+
     def brain(self) -> Dict[str, Any]:
         from . import brain as brainmod
         return {"lessons": brainmod.lessons(self.j), "hints": brainmod.hints(self.j)}
@@ -732,12 +737,14 @@ def make_handler(api: Api, token: str = ""):
                 from urllib.parse import parse_qs
                 d = parse_qs(urlparse(self.path).query).get("date", [""])[0]
                 return self._json(api.rejection_rows(d or et_date()))
-            if path in ("/api/strategy/analytics", "/api/strategy/trades"):
+            if path in ("/api/strategy/analytics", "/api/strategy/trades", "/api/master"):
                 from urllib.parse import parse_qs
                 qs = parse_qs(urlparse(self.path).query)
                 g = lambda k, d="": qs.get(k, [d])[0]  # noqa: E731
                 try:
                     days = max(0, min(int(g("days", "0") or 0), 3650))
+                    if path == "/api/master":
+                        return self._json(api.master(days=days))
                     if path == "/api/strategy/analytics":
                         return self._json(api.strategy_analytics(days=days))
                     return self._json(api.strategy_trades(g("name"), mode=g("mode"), limit=max(1, min(int(g("limit", "500") or 500), 5000)), days=days))

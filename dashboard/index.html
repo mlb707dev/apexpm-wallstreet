@@ -87,6 +87,9 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
 .alert b{font-family:'JetBrains Mono',monospace;white-space:nowrap}
 .err{background:#2a0a14;border:1px solid #4a0f1f;color:var(--red);padding:10px;border-radius:10px;font-size:12px;margin:10px 0}
 .ago{color:var(--dim);font-size:11px}
+.mvgrid{display:grid;grid-template-columns:1fr;gap:10px}
+@media(min-width:900px){.mvgrid{grid-template-columns:1.5fr 1fr;align-items:center}}
+.mvtip{position:absolute;display:none;pointer-events:none;z-index:10;background:#1f2a4d;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;color:#fff;max-width:240px;line-height:1.45}
 .tier{margin:18px 0 8px}.tier h2{font-family:'DM Sans',sans-serif;font-size:16px;color:#fff;letter-spacing:0;margin:0}
 .tier p{font-size:12px;color:var(--dim);margin:2px 0 8px}
 .sc{background:var(--bg3);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer}
@@ -125,7 +128,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 32</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 33</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -187,7 +190,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   <div class="card tbl"><h3>Governance events</h3><div id="events"></div></div>
 </section>
 
-<section id="analytics"><div id="ana"></div></section>
+<section id="analytics"><div class="card" id="master" style="position:relative"><h3>Master view</h3><div class="empty">Loading…</div></div><div id="ana"></div></section>
 <section id="reports"><div class="card tbl"><h3>Upcoming events <span class="ago">next 30 days</span></h3><div id="upcoming"></div></div><div id="weeklylist"></div><div id="reportlist"></div></section>
 
 <section id="decisions">
@@ -541,9 +544,241 @@ function earnedTxt(E){
   const names = {proving:'proving itself', earning:'earning more size', proven:'proven', stacking:'stacking'};
   return `<div class="ext" style="grid-template-columns:1fr"><div><div class="k">Earned size</div><b>×${E.mult.toFixed(2)}</b> · ${names[E.name]||E.name}${E.guard?` · <span class="neg">stepped down: ${E.guard}</span>`:''}<br><span class="d">${E.next} Judged on the last ${E.window||30} filled trades: ${E.wins} wins of ${E.n}, win rate ${Math.round((E.win_rate||0)*100)}%.</span></div></div>`;
 }
+// ---- Master view: every trade in one picture (quadrant of groups + 24-hour trade clock) ----
+const MV = {data: null, lens: 'strategy', color: 'book', book: '', asset: '', sel: null};
+const MV_GAIN = '#3987e5', MV_LOSS = '#e66767', MV_FLAT = '#6b7299';   // validated on the card surface (blue/red diverging)
+const MV_CAT = ['#3987e5', '#d95926', '#199e70'];   // categorical slots 1-3, validated all-pairs on the card surface; a 4th+ folds to Other (gray)
+const COLOR_BY = [['result', 'Made or lost money'], ['book', 'Account'], ['asset', 'Asset type'], ['strategy', 'Strategy (top 3)']];
+const ET_FMT = new Intl.DateTimeFormat('en-US', {timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric', weekday: 'short', hour12: false});
+function etParts(iso){
+  const d = new Date(iso); if (isNaN(d)) return null;
+  const p = {}; ET_FMT.formatToParts(d).forEach(x => { p[x.type] = x.value; });
+  return {h: (parseInt(p.hour, 10) % 24), m: parseInt(p.minute, 10), wd: p.weekday};
+}
+function sessionOf(iso){
+  const e = etParts(iso); if (!e) return 'unknown';
+  const t = e.h * 60 + e.m;
+  if (t < 240 || t >= 1200) return '6 Overnight (8 PM–4 AM)';
+  if (t < 570) return '0 Pre-market (4–9:30 AM)';
+  if (t < 630) return '1 Opening hour (9:30–10:30)';
+  if (t < 690) return '2 Morning (10:30–11:30)';
+  if (t < 810) return '3 Midday (11:30–1:30)';
+  if (t < 900) return '4 Afternoon (1:30–3)';
+  if (t < 960) return '4b Power hour (3–4 PM)';
+  return '5 After-hours (4–8 PM)';
+}
+const HOLD = m => m == null ? 'unknown' : m < 15 ? '1 Under 15 min' : m < 60 ? '2 15–60 min' : m < 120 ? '3 1–2 hours' : m < 240 ? '4 2–4 hours' : '5 Over 4 hours';
+const MOOD = {trend_up: 'Trending up', trend_down: 'Trending down', chop: 'Choppy'};
+const LENSES = [
+  ['strategy', 'Strategy', t => nice(t.strategy)],
+  ['asset', 'Asset type', t => ({stocks: 'Stocks', options: 'Options', crypto: 'Crypto'})[t.asset] || t.asset],
+  ['symbol', 'Ticker', t => t.symbol],
+  ['book', 'Account', t => ({practice: 'Practice (paper)', lab: 'Lab (watch only)', 'real money': 'Real money'})[t.book] || t.book],
+  ['session', 'Time of day', t => sessionOf(t.opened_at).replace(/^\w+ /, '')],
+  ['weekday', 'Day of week', t => (etParts(t.opened_at) || {}).wd || 'unknown'],
+  ['regime', 'Market mood', t => MOOD[t.regime] || 'unknown'],
+  ['confirmations', 'Confirmations at entry', t => t.confirmations == null ? 'not scored' : t.confirmations + ' confirmation' + (t.confirmations == 1 ? '' : 's')],
+  ['size', 'Size tier', t => '×' + (t.size_mult ? Number(t.size_mult).toFixed(2) : '1.00')],
+  ['hold', 'Hold time', t => HOLD(t.held_min).replace(/^\d /, '')],
+  ['ended', 'How it ended', t => (WHY[t.ended] || t.ended || 'unknown')],
+  ['verdict', 'Replay verdict', t => t.verdict || 'not replayed yet'],
+  ['side', 'Buy or short', t => t.side === 'buy' ? 'Buy' : 'Short sale'],
+];
+const lensFn = k => (LENSES.find(l => l[0] === k) || LENSES[0])[2];
+function colorScale(trades){
+  // categories ranked by trade count; the first three get the validated slots, the rest fold into Other
+  if (MV.color === 'result') return {key: t => (t.pnl > 0 ? 'Made money' : t.pnl < 0 ? 'Lost money' : 'Flat'),
+    fill: k => (k === 'Made money' ? MV_GAIN : k === 'Lost money' ? MV_LOSS : MV_FLAT), legend: [['Made money', MV_GAIN], ['Lost money', MV_LOSS]]};
+  const f = lensFn(MV.color), cnt = {};
+  trades.forEach(t => { const k = f(t); cnt[k] = (cnt[k] || 0) + 1; });
+  const top = Object.entries(cnt).sort((a, b) => b[1] - a[1]).map(e => e[0]);
+  const slot = {}; top.slice(0, 3).forEach((k, i) => { slot[k] = MV_CAT[i]; });
+  const other = top.length > 3 ? (MV.color === 'strategy' ? 'Other strategies' : 'Other') : null;
+  const key = t => { const k = f(t); return slot[k] ? k : other || k; };
+  const legend = top.slice(0, 3).map(k => [k, slot[k]]); if (other) legend.push([other, MV_FLAT]);
+  return {key, fill: k => slot[k] || MV_FLAT, legend};
+}
+
+function mvTrades(){
+  const d = MV.data; if (!d) return [];
+  return d.trades.filter(t => (!MV.book || t.book === MV.book) && (!MV.asset || t.asset === MV.asset) && t.r != null);
+}
+function mvGroups(trades, cs){
+  const f = lensFn(MV.lens), g = {}, split = MV.color !== 'result' && MV.color !== MV.lens;
+  trades.forEach(t => { const k = f(t) + (split ? '||' + cs.key(t) : ''); (g[k] = g[k] || []).push(t); });
+  return Object.entries(g).map(([k, ts]) => {
+    const n = ts.length, wins = ts.filter(t => t.pnl > 0).length, net = ts.reduce((a, t) => a + t.pnl, 0);
+    const avg = ts.reduce((a, t) => a + t.r, 0) / n, hit = ts.filter(t => t.hit_target).length;
+    const held = ts.filter(t => t.held_min != null);
+    const [label, ck] = k.split('||');
+    return {key: k, label, ck: ck || null, n, win: wins / n, avg, net, hit: hit / n, hold: held.length ? held.reduce((a, t) => a + t.held_min, 0) / held.length : null,
+            best: Math.max(...ts.map(t => t.pnl)), worst: Math.min(...ts.map(t => t.pnl)), trades: ts};
+  }).sort((a, b) => b.n - a.n);
+}
+
+function svgEl(tag, attrs, text){
+  const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => e.setAttribute(k, v));
+  if (text != null) e.textContent = text;
+  return e;
+}
+function mvTip(evt, lines){
+  const tip = $('#mvtip'); tip.replaceChildren();
+  lines.forEach((ln, i) => { const d = document.createElement('div'); if (i === 0) d.style.fontWeight = '700'; d.textContent = ln; tip.appendChild(d); });
+  tip.style.display = 'block';
+  const box = $('#master').getBoundingClientRect(), x = evt.clientX - box.left + 12, y = evt.clientY - box.top + 12;
+  tip.style.left = Math.min(x, box.width - 230) + 'px'; tip.style.top = y + 'px';
+}
+function mvHide(){ $('#mvtip').style.display = 'none'; }
+
+function drawQuadrant(groups, cs, width){
+  const W = Math.max(300, Math.min(760, width || 640)), H = Math.round(Math.max(340, Math.min(440, W * 0.78))), L = 54, R = 12, T = 40, B = 40, iw = W - L - R, ih = H - T - B;
+  const ext = Math.max(0.5, ...groups.map(g => Math.abs(g.avg))) * 1.15;
+  const x = v => L + v * iw, y = v => T + (ext - v) / (2 * ext) * ih;
+  const maxN = Math.max(1, ...groups.map(g => g.n));
+  const rad = n => 6 + 22 * Math.sqrt(n / maxN);
+  const s = svgEl('svg', {viewBox: `0 0 ${W} ${H}`, width: '100%', role: 'img', 'aria-label': 'Groups of trades by win rate and average result'});
+  [[0.5, 0], [0, ext], [1, -ext]].forEach(() => {});
+  // recessive grid + quadrant lines
+  [0, 0.25, 0.5, 0.75, 1].forEach(v => { s.appendChild(svgEl('line', {x1: x(v), x2: x(v), y1: T, y2: T + ih, stroke: '#222b48', 'stroke-width': v === 0.5 ? 1.5 : 1}));
+    s.appendChild(svgEl('text', {x: x(v), y: H - 22, fill: '#6b7299', 'font-size': 11, 'text-anchor': 'middle'}, Math.round(v * 100) + '%')); });
+  [-ext, -ext / 2, 0, ext / 2, ext].forEach(v => { s.appendChild(svgEl('line', {x1: L, x2: L + iw, y1: y(v), y2: y(v), stroke: '#222b48', 'stroke-width': v === 0 ? 1.5 : 1}));
+    s.appendChild(svgEl('text', {x: L - 6, y: y(v) + 4, fill: '#6b7299', 'font-size': 11, 'text-anchor': 'end'}, (v > 0 ? '+' : '') + v.toFixed(2) + '×')); });
+  s.appendChild(svgEl('text', {x: L + iw / 2, y: H - 4, fill: '#6b7299', 'font-size': 11, 'text-anchor': 'middle'}, 'Won (share of trades)'));
+  s.appendChild(svgEl('text', {x: 12, y: T + ih / 2, fill: '#6b7299', 'font-size': 11, 'text-anchor': 'middle', transform: `rotate(-90 12 ${T + ih / 2})`}, 'Average result (× risk)'));
+  // legend on the graph (identity never by color alone: labels and tooltips name every bubble too)
+  let lx = L;
+  cs.legend.forEach(([name, col]) => {
+    s.appendChild(svgEl('circle', {cx: lx + 6, cy: 14, r: 6, fill: col}));
+    s.appendChild(svgEl('text', {x: lx + 16, y: 18, fill: '#c8d4f0', 'font-size': 11}, name.length > 20 ? name.slice(0, 19) + '…' : name));
+    lx += 26 + Math.min(20, name.length) * 6.4;
+  });
+  const cap = (tx, ty, anchor, text) => s.appendChild(svgEl('text', {x: tx, y: ty, fill: '#8a93bd', 'font-size': 11, 'text-anchor': anchor}, text));
+  const narrow = iw < 420;
+  cap(L + iw - 6, T + 14, 'end', narrow ? 'Stack these' : 'Wins often and big: stack these');
+  cap(L + 6, T + 14, 'start', narrow ? 'Let them run' : 'Wins rarely, wins pay: let them run');
+  cap(L + iw - 6, T + ih - 8, 'end', narrow ? 'Fix exits' : 'Wins often, losses hurt: fix exits');
+  cap(L + 6, T + ih - 8, 'start', narrow ? 'Fix or cut' : 'Losing: fix or cut');
+  // bubbles, biggest first so small ones stay on top
+  groups.slice().sort((a, b) => b.n - a.n).forEach(g => {
+    const cx = x(g.win), cy = y(g.avg), r = rad(g.n), on = !MV.sel || MV.sel === g.key;
+    const fill = MV.color === 'result' ? (g.net > 0 ? MV_GAIN : g.net < 0 ? MV_LOSS : MV_FLAT) : cs.fill(g.ck || g.label);
+    const c = svgEl('circle', {cx, cy, r, fill, 'fill-opacity': on ? 0.78 : 0.15, stroke: '#10162b', 'stroke-width': 2, style: 'cursor:pointer'});
+    if (MV.sel === g.key) { c.setAttribute('stroke', '#ffffff'); c.setAttribute('stroke-width', 2.5); }
+    const lines = [g.label + (g.ck && g.ck !== g.label ? ' · ' + g.ck : ''), `${g.n} trade${g.n === 1 ? '' : 's'} · won ${Math.round(g.win * 100)}% · hit target ${Math.round(g.hit * 100)}%`,
+                   `average ${signed(g.avg)}× risk · net ${money(g.net)}`, `best ${money(g.best)} · worst ${money(g.worst)}` + (g.hold != null ? ` · held ${Math.round(g.hold)} min avg` : ''),
+                   'Tap for its trades, and to light them up on the clock'];
+    c.addEventListener('pointermove', e => mvTip(e, lines)); c.addEventListener('pointerleave', mvHide);
+    c.addEventListener('click', () => { MV.sel = MV.sel === g.key ? null : g.key; drawMaster(); });
+    // bigger invisible hit area for small bubbles
+    const hit = svgEl('circle', {cx, cy, r: Math.max(r, 14), fill: 'transparent', style: 'cursor:pointer'});
+    hit.addEventListener('pointermove', e => mvTip(e, lines)); hit.addEventListener('pointerleave', mvHide);
+    hit.addEventListener('click', () => { MV.sel = MV.sel === g.key ? null : g.key; drawMaster(); });
+    s.appendChild(c); s.appendChild(hit);
+  });
+  // selective direct labels: biggest groups first, skipped when they would collide with one already placed
+  const placed = [];
+  groups.slice(0, 10).forEach(g => {
+    const cx = x(g.win), cy = y(g.avg), r = rad(g.n);
+    const right = cx < L + iw - 120;
+    const txt = g.label.length > 22 ? g.label.slice(0, 21) + '…' : g.label, w = txt.length * 6.3;
+    const bx = right ? cx + r + 4 : cx - r - 4 - w, box = [bx, cy - 9, bx + w, cy + 5];
+    if (placed.some(p => !(box[2] < p[0] || box[0] > p[2] || box[3] < p[1] || box[1] > p[3]))) return;
+    placed.push(box);
+    s.appendChild(svgEl('text', {x: right ? cx + r + 4 : cx - r - 4, y: cy + 4, fill: '#c8d4f0', 'font-size': 11, 'text-anchor': right ? 'start' : 'end',
+                                 'pointer-events': 'none', opacity: !MV.sel || MV.sel === g.key ? 1 : 0.35}, g.label.length > 22 ? g.label.slice(0, 21) + '…' : g.label));
+  });
+  return s;
+}
+
+function drawClock(trades, cs, width){
+  const S = Math.max(300, Math.min(440, width || 400)), C = S / 2, R0 = Math.round(S * 0.115), R1 = Math.round(S * 0.445);     // inner radius = worst, outer = best
+  const lo = -2, hi = 3, rr = v => R0 + (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (R1 - R0);
+  const ang = (h, m) => ((h * 60 + m) / 1440) * 2 * Math.PI - Math.PI / 2;   // midnight at the top, clockwise
+  const s = svgEl('svg', {viewBox: `0 0 ${S} ${S}`, width: '100%', role: 'img', 'aria-label': 'Every trade on a 24-hour clock'});
+  const arc = (h0, m0, h1, m1, fill) => {
+    const a0 = ang(h0, m0), a1 = ang(h1, m1), big = (a1 - a0) > Math.PI ? 1 : 0;
+    const p = (a, r) => `${C + r * Math.cos(a)} ${C + r * Math.sin(a)}`;
+    s.appendChild(svgEl('path', {d: `M ${p(a0, R0)} L ${p(a0, R1)} A ${R1} ${R1} 0 ${big} 1 ${p(a1, R1)} L ${p(a1, R0)} A ${R0} ${R0} 0 ${big} 0 ${p(a0, R0)} Z`, fill}));
+  };
+  arc(9, 30, 16, 0, 'rgba(56,189,248,0.07)');      // regular session
+  arc(4, 0, 9, 30, 'rgba(168,85,247,0.06)');       // pre-market
+  arc(16, 0, 20, 0, 'rgba(168,85,247,0.06)');      // after-hours
+  [lo, 0, hi].forEach(v => s.appendChild(svgEl('circle', {cx: C, cy: C, r: rr(v), fill: 'none', stroke: v === 0 ? '#3a4570' : '#222b48', 'stroke-width': v === 0 ? 1.5 : 1, 'stroke-dasharray': v === 0 ? '4 4' : ''})));
+  s.appendChild(svgEl('text', {x: C + 4, y: C - rr(0) - 4, fill: '#6b7299', 'font-size': 10}, 'break-even'));
+  s.appendChild(svgEl('text', {x: C + 4, y: C - rr(hi) + 12, fill: '#6b7299', 'font-size': 10}, '+3× risk'));
+  [[0, 'midnight'], [4, '4 AM'], [9.5, '9:30'], [12, 'noon'], [16, '4 PM'], [20, '8 PM']].forEach(([h, lab]) => {
+    const a = ang(Math.floor(h), (h % 1) * 60), r = R1 + 12;
+    s.appendChild(svgEl('line', {x1: C + R0 * Math.cos(a), y1: C + R0 * Math.sin(a), x2: C + R1 * Math.cos(a), y2: C + R1 * Math.sin(a), stroke: '#222b48'}));
+    s.appendChild(svgEl('text', {x: C + r * Math.cos(a), y: C + r * Math.sin(a) + 4, fill: '#6b7299', 'font-size': 10, 'text-anchor': 'middle'}, lab));
+  });
+  const maxRisk = Math.max(1, ...trades.map(t => t.risk_usd || 0));
+  const sel = MV.sel, inSel = mvInSel();
+  trades.slice().sort((a, b) => (sel ? inSel(a) - inSel(b) : 0)).forEach(t => {
+    const e = etParts(t.opened_at); if (!e) return;
+    const a = ang(e.h, e.m), r = rr(t.r), on = !sel || inSel(t);
+    const dot = svgEl('circle', {cx: C + r * Math.cos(a), cy: C + r * Math.sin(a), r: 4 + 6 * Math.sqrt((t.risk_usd || 0) / maxRisk),
+                                 fill: cs.fill(cs.key(t)), 'fill-opacity': on ? 0.85 : 0.1, stroke: '#10162b', 'stroke-width': 2});
+    const lines = [`${t.symbol} · ${nice(t.strategy)}`, `${when(t.opened_at)} · ${t.book}`, `${money(t.pnl)} (${signed(t.r)}× risk) · ${WHY[t.ended] || t.ended || ''}`,
+                   `risked ${money(t.risk_usd)}` + (t.held_min != null ? ` · held ${t.held_min} min` : '') + (t.verdict ? ` · replay: ${t.verdict}` : '')];
+    dot.addEventListener('pointermove', ev => mvTip(ev, lines)); dot.addEventListener('pointerleave', mvHide);
+    s.appendChild(dot);
+  });
+  s.appendChild(svgEl('text', {x: C, y: C + 4, fill: '#6b7299', 'font-size': 10, 'text-anchor': 'middle'}, trades.length + ' trades'));
+  return s;
+}
+
+function mvInSel(){
+  const f = lensFn(MV.lens), split = MV.color !== 'result' && MV.color !== MV.lens, cs = MV._cs;
+  return t => !!MV.sel && (f(t) + (split ? '||' + cs.key(t) : '')) === MV.sel;
+}
+function mvDetail(sel){
+  if (!sel) return '';
+  const rows = sel.trades.slice().sort((a, b) => (b.closed_at || '').localeCompare(a.closed_at || '')).slice(0, 60);
+  const strat = new Set(sel.trades.map(t => t.strategy)).size === 1 ? sel.trades[0].strategy : null;
+  return `<div class="card" style="background:var(--bg3);margin-top:10px"><h3>${sel.label}${sel.ck && sel.ck !== sel.label ? ' · ' + sel.ck : ''} <a href="#" onclick="MV.sel=null;drawMaster();return false" class="ago" style="color:var(--sky)">close ✕</a></h3>
+    <div class="kv"><div><div class="k">Trades</div><div class="v sm">${sel.n}</div></div><div><div class="k">Won</div><div class="v sm">${Math.round(sel.win * 100)}%</div></div><div><div class="k">Net</div><div class="v sm ${cls(sel.net)}">${money(sel.net)}</div></div>
+      <div><div class="k">Avg vs. risk</div><div class="v sm ${cls(sel.avg)}">${signed(sel.avg)}×</div></div><div><div class="k">Hit target</div><div class="v sm">${Math.round(sel.hit * 100)}%</div></div><div><div class="k">Avg hold</div><div class="v sm">${sel.hold != null ? Math.round(sel.hold) + ' min' : '—'}</div></div></div>
+    ${strat ? `<div class="actions"><button class="btn ok" onclick="openStrat('${strat}')">Open ${nice(strat)} in full</button></div>` : ''}
+    <div class="tbl" style="margin-top:8px"><table><tr><th>Closed</th><th>Ticker</th><th>Strategy</th><th>Account</th><th>Result</th><th>× risk</th><th>How it ended</th><th>Replay</th></tr>${rows.map(t => `<tr><td>${when(t.closed_at)}</td><td>${t.symbol}</td><td>${nice(t.strategy)}</td><td>${t.book}</td><td class="${cls(t.pnl)}">${money(t.pnl)}</td><td class="${cls(t.r)}">${signed(t.r)}</td><td>${WHY[t.ended] || t.ended || ''}</td><td>${t.verdict || '—'}</td></tr>`).join('')}</table></div>
+    ${sel.n > rows.length ? `<p class="ago">Showing the latest ${rows.length} of ${sel.n}.</p>` : ''}</div>`;
+}
+function drawMaster(){
+  const el = $('#master'); if (!el || !MV.data) return;
+  const trades = mvTrades(), cs = colorScale(trades); MV._cs = cs;
+  const groups = mvGroups(trades, cs);
+  if (MV.sel && !groups.some(g => g.key === MV.sel)) MV.sel = null;
+  const opt = (arr, cur) => arr.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`).join('');
+  const sel = MV.sel ? groups.find(g => g.key === MV.sel) : null;
+  el.innerHTML = `<h3>Master view <span class="ago">every trade, every account${MV.data.days ? ', last ' + MV.data.days + ' days' : ', all time'}</span></h3>
+    <div class="filters">
+      <div><label>Group by</label><select id="mv_lens">${opt(LENSES.map(l => [l[0], l[1]]), MV.lens)}</select></div>
+      <div><label>Color by</label><select id="mv_color">${opt(COLOR_BY, MV.color)}</select></div>
+      <div><label>Account</label><select id="mv_book">${opt([['', 'All'], ['practice', 'Practice (paper)'], ['lab', 'Lab (watch only)'], ['real money', 'Real money']], MV.book)}</select></div>
+      <div><label>Asset type</label><select id="mv_asset">${opt([['', 'All'], ['stocks', 'Stocks'], ['options', 'Options'], ['crypto', 'Crypto']], MV.asset)}</select></div>
+    </div>
+    <p class="ago" style="margin:0 0 6px;white-space:normal">Each bubble is a group of trades: right = wins more often, up = bigger average result, size = number of trades. Hover for numbers, tap for the trades.</p>
+    <div class="mvgrid"><div id="mvq"></div><div id="mvc"></div></div>
+    <p class="ago" style="margin-top:4px;white-space:normal">The clock: each dot is one trade, placed at the time it opened (New York time, midnight at the top). Farther out = better result; the dashed ring is break-even. Dot size = dollars at risk. Shaded: regular hours (blue), pre-market and after-hours (purple).</p>
+    ${mvDetail(sel)}
+    <details style="margin-top:8px"><summary style="font-size:12px;color:var(--dim);cursor:pointer">Show as a table</summary><div class="tbl"><table><tr><th>${(LENSES.find(l => l[0] === MV.lens) || LENSES[0])[1]}</th><th>Trades</th><th>Won</th><th>Hit target</th><th>Avg per trade</th><th>Net</th><th>Best</th><th>Worst</th></tr>${groups.map(g => `<tr><td style="white-space:normal">${g.label}${g.ck && g.ck !== g.label ? ' · ' + g.ck : ''}</td><td>${g.n}</td><td>${Math.round(g.win * 100)}%</td><td>${Math.round(g.hit * 100)}%</td><td class="${cls(g.avg)}">${signed(g.avg)}×</td><td class="${cls(g.net)}">${money(g.net)}</td><td>${money(g.best)}</td><td>${money(g.worst)}</td></tr>`).join('')}</table></div></details>
+    <div id="mvtip" class="mvtip"></div>`;
+  if (!trades.length) { $('#mvq').innerHTML = '<div class="empty">No closed trades match these filters yet.</div>'; }
+  else { $('#mvq').appendChild(drawQuadrant(groups, cs, $('#mvq').clientWidth)); $('#mvc').appendChild(drawClock(trades, cs, $('#mvc').clientWidth)); }
+  $('#mv_lens').onchange = e => { MV.lens = e.target.value; MV.sel = null; drawMaster(); };
+  $('#mv_color').onchange = e => { MV.color = e.target.value; MV.sel = null; drawMaster(); };
+  $('#mv_book').onchange = e => { MV.book = e.target.value; MV.sel = null; drawMaster(); };
+  $('#mv_asset').onchange = e => { MV.asset = e.target.value; MV.sel = null; drawMaster(); };
+}
+async function loadMaster(){
+  try { MV.data = await api('/api/master' + (ANA_DAYS ? '?days=' + ANA_DAYS : '')); drawMaster(); }
+  catch (e) { const el = $('#master'); if (el) el.innerHTML = '<h3>Master view</h3><div class="empty">Could not load: ' + e.message + '</div>'; }
+}
+
 async function loadAnalytics(){
   const el = $('#ana');
-  if(el.dataset.open){ return openStrat(el.dataset.open, true); }
+  if(el.dataset.open){ $('#master').style.display='none'; return openStrat(el.dataset.open, true); }
+  $('#master').style.display=''; loadMaster();
   const [t, a] = await Promise.all([api('/api/strategy/analytics' + (ANA_DAYS?'?days='+ANA_DAYS:'')), api('/api/analytics')]);
   const scope = windowSeg();
   const tiers = t.tiers.map(tier=>{ const [h, sub, empty] = TIER_TEXT[tier.tier];
@@ -574,7 +809,7 @@ async function openStrat(name, keep){
     <div id="drill"></div>`;
   drawDrill();
 }
-function closeStrat(){ delete $('#ana').dataset.open; loadAnalytics(); }
+function closeStrat(){ delete $('#ana').dataset.open; $('#master').style.display=''; loadAnalytics(); }
 function drawDrill(){
   if(!DRILL) return;
   const sym=$('#f_sym').value, res=$('#f_res').value, w=$('#f_why').value, mode=$('#f_mode').value;
