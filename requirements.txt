@@ -1,0 +1,9 @@
+alpaca-py>=0.43
+pandas>=2.0
+numpy>=1.26
+python-dotenv>=1.0
+pytest>=8.0
+yfinance>=0.2
+tabulate>=0.9
+tzdata>=2024.1
+lxml>=5.0

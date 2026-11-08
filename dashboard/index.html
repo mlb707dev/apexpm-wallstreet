@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1020">
+<meta name="application-name" content="ApexPM Wallstreet">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ApexPM Wallstreet">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="description" content="ApexPM Wallstreet trading dashboard">
+<meta http-equiv="Cache-Control" content="no-store">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+<title>ApexPM Wallstreet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=JetBrains+Mono:wght@500;700&family=Orbitron:wght@600;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0b1020;--bg2:#10162b;--bg3:#161d35;--line:#222b48;--text:#c8d4f0;--dim:#6b7299;
+--sky:#38bdf8;--purple:#a855f7;--pink:#ec4899;--orange:#f97316;--red:#ff2d55;--amber:#ffaa00;--green:#22c55e;--gold:#d4af37}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--text);font-family:'DM Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.mono{font-family:'JetBrains Mono',monospace}
+header{position:sticky;top:0;z-index:5;background:rgba(11,16,32,.96);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.hbar{max-width:1100px;margin:0 auto;padding:calc(10px + env(safe-area-inset-top)) 16px 8px;display:flex;align-items:center;gap:10px}
+.hbar img{width:30px;height:30px;border-radius:7px}
+.hbar h1{font-family:'Orbitron',sans-serif;font-weight:800;font-size:14px;letter-spacing:.14em;color:#fff}
+.hbar h1 span{color:var(--sky)}
+.chip{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.06em;padding:3px 7px;border-radius:6px;text-transform:uppercase}
+.chip.paper{background:#0b3a52;color:var(--sky)}.chip.research{background:#2a1d4a;color:var(--purple)}.chip.suspended{background:#4a0f1f;color:var(--red)}.chip.retired{background:#222;color:var(--dim)}.chip.live{background:#143d1f;color:var(--green)}.chip.dry{background:#3a2d00;color:var(--amber)}.chip.off{background:#2a2a2a;color:var(--dim)}
+.heq{margin-left:auto;font-family:'JetBrains Mono',monospace;font-weight:700;color:#fff;font-size:15px}
+.tabs{max-width:1100px;margin:0 auto;display:flex;gap:2px;overflow-x:auto;padding:0 10px;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);font-family:'DM Sans',sans-serif;font-weight:600;font-size:13px;padding:10px 12px;white-space:nowrap}
+.tabs button.on{color:#fff;border-bottom-color:var(--sky)}
+main{max-width:1100px;margin:0 auto;padding:14px 16px calc(24px + env(safe-area-inset-bottom))}
+section{display:none}section.active{display:block}
+.grid{display:grid;grid-template-columns:1fr;gap:12px}
+@media(min-width:900px){.grid{grid-template-columns:1.3fr 1fr}}
+.card{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.card h3{font-size:14px;font-weight:700;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.card p{font-size:12px;color:var(--dim)}
+.kv{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.kv div .k{font-size:10px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
+.kv div .v{font-family:'JetBrains Mono',monospace;font-size:19px;font-weight:700;color:#fff;margin-top:2px}
+.kv div .v.sm{font-size:14px}
+.pos{color:var(--green)!important}.neg{color:var(--red)!important}
+.row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.row:last-child{border-bottom:0}.row b{font-family:'JetBrains Mono',monospace;color:#fff;font-weight:600}
+.row .dim{color:var(--dim);font-size:11px}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:6px 0 10px}
+.seg button{background:var(--bg3);border:0;color:var(--dim);padding:10px 4px;font-family:'DM Sans',sans-serif;font-weight:600;font-size:12px}
+.seg button.on{background:#1f2a4d;color:#fff}
+.banner{background:#1a2a12;border:1px solid #24401a;border-left:3px solid var(--green);border-radius:10px;padding:10px 12px;font-size:12px;color:#cde;margin-bottom:12px}
+.banner.warn{background:#2a2010;border-color:#4a3a10;border-left-color:var(--amber)}
+.banner.bad{background:#2a0a14;border-color:#4a0f1f;border-left-color:var(--red)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+td{padding:7px 4px;border-bottom:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap}
+.tbl{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.levels{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.lv{display:flex;justify-content:space-between;background:var(--bg3);border-radius:8px;padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:12px}
+.lv.up{border-left:3px solid var(--green)}.lv.dn{border-left:3px solid var(--red)}.lv.anchor{grid-column:1/-1;border-left:3px solid var(--sky)}
+pre{white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5}
+.empty{color:var(--dim);font-size:12px;padding:8px 0}
+button.btn{font-family:'DM Sans',sans-serif;font-weight:600;font-size:12px;border-radius:8px;border:1px solid var(--line);background:var(--bg3);color:var(--text);padding:8px 10px}
+button.btn.warn{border-color:#4a0f1f;color:var(--red)}button.btn.ok{border-color:#0b3a52;color:var(--sky)}
+.actions{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+canvas{max-height:220px}
+input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg3);color:#fff;font-family:'JetBrains Mono',monospace;font-size:13px;margin:6px 0 10px}
+#login{position:fixed;inset:0;background:var(--bg);display:none;align-items:center;justify-content:center;z-index:20;padding:20px}
+#login form{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:22px;width:100%;max-width:360px}
+#login h2{font-family:'Orbitron',sans-serif;font-size:13px;letter-spacing:.14em;color:#fff;margin-bottom:12px}
+#login label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+#login button{width:100%;padding:11px;border-radius:8px;border:0;background:var(--sky);color:#031018;font-weight:700;font-family:'DM Sans',sans-serif}
+#alerts{max-width:1100px;margin:0 auto;padding:0 16px}
+.alert{border-radius:10px;padding:10px 12px;font-size:13px;margin:10px 0 0;display:flex;justify-content:space-between;gap:10px;align-items:center;border:1px solid}
+.alert.today{background:#3a0f1a;border-color:#7a1f36;color:#ffd1dc}
+.alert.tomorrow{background:#3a2a08;border-color:#7a5a10;color:#ffe6a8}
+.alert.soon{background:#14213a;border-color:#2a4a7a;color:#cfe0ff}
+.alert.flash{animation:flash 1.2s ease-in-out infinite}
+@keyframes flash{0%,100%{box-shadow:0 0 0 0 rgba(255,170,0,0)}50%{box-shadow:0 0 0 4px rgba(255,170,0,.45)}}
+.alert b{font-family:'JetBrains Mono',monospace;white-space:nowrap}
+.err{background:#2a0a14;border:1px solid #4a0f1f;color:var(--red);padding:10px;border-radius:10px;font-size:12px;margin:10px 0}
+.ago{color:var(--dim);font-size:11px}
+.tier{margin:18px 0 8px}.tier h2{font-family:'DM Sans',sans-serif;font-size:16px;color:#fff;letter-spacing:0;margin:0}
+.tier p{font-size:12px;color:var(--dim);margin:2px 0 8px}
+.sc{background:var(--bg3);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer}
+.sc:active{background:#1a2340}.sc .nm{font-size:15px;font-weight:700;color:#fff;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.sc .desc{font-size:12px;color:var(--dim);margin:3px 0 10px;white-space:normal}
+.sc .big{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.sc .big .k{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}.sc .big .v{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:#fff;margin-top:2px}
+.sc .ext{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.sc .ext div{background:var(--bg2);border-radius:10px;padding:8px 10px;font-size:12px;white-space:normal}
+.sc .ext b{font-family:'JetBrains Mono',monospace;font-size:13px}
+.sc .ext .k{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}
+.sc .ext .d{color:var(--dim);font-size:11px}
+.trend{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:12px;color:var(--dim);white-space:normal;line-height:1.5}
+.trend svg{flex:0 0 auto}
+.up{color:var(--green)}.dn{color:var(--red)}.flat{color:var(--amber)}
+.sc .more{margin-top:10px;font-size:12px;color:var(--sky);font-weight:600}
+.filters{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:10px 0}
+.filters select{width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg3);color:#fff;font-family:'DM Sans',sans-serif;font-size:13px}
+.filters label{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:3px}
+.back{background:none;border:0;color:var(--sky);font-family:'DM Sans',sans-serif;font-weight:600;font-size:13px;padding:0;margin-bottom:10px}
+.tr{background:var(--bg3);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;font-size:12px;white-space:normal}
+.tr .h{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:#fff;font-weight:600}
+.tr .h b{font-family:'JetBrains Mono',monospace;font-size:14px}
+.tr .m{color:var(--dim);margin-top:4px;line-height:1.5}
+.tr .m span{color:var(--text)}
+@media(min-width:700px){.sc .big{grid-template-columns:repeat(6,1fr)}.filters{grid-template-columns:repeat(4,1fr)}}
+</style>
+</head>
+<body>
+<div id="modal" style="position:fixed;inset:0;background:rgba(5,8,20,.8);display:none;align-items:center;justify-content:center;z-index:30;padding:20px">
+  <div style="background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:18px;width:100%;max-width:380px">
+    <h3 id="m_title" style="font-size:14px;color:#fff;margin-bottom:8px"></h3>
+    <p id="m_text" style="font-size:12px;color:var(--dim);margin-bottom:8px"></p>
+    <input class="inp" id="m_note" placeholder="Note (recorded)" autocomplete="off">
+    <div class="actions"><button class="btn ok" id="m_ok">Confirm</button><button class="btn" id="m_cancel">Cancel</button></div>
+  </div></div>
+<div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
+<div id="login"><form onsubmit="return doLogin()">
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 32</span></h2>
+  <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
+  <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
+  <button>Sign in</button>
+  <p id="l_err" class="err" style="display:none"></p>
+</form></div>
+
+<header>
+  <div class="hbar"><img src="/icons/icon-192.png" alt="" onerror="this.style.display='none'"><h1>APEX<span>PM</span></h1>
+    <span id="mode" class="chip off">…</span><span id="profchip" class="chip research" title="risk profile">…</span>
+    <span class="heq" id="heq">—</span></div>
+  <nav class="tabs" id="tabs">
+    <button data-tab="overview" class="on">Overview</button><button data-tab="positions">Positions</button>
+    <button data-tab="activity">Activity</button><button data-tab="analytics">Analytics</button>
+    <button data-tab="reports">Reports</button><button data-tab="decisions">Strategies <span id="decbadge"></span></button><button data-tab="settings">Settings</button>
+  </nav>
+</header>
+<div id="alerts"></div>
+<main>
+<div id="err" class="err" style="display:none"></div>
+
+<section id="overview" class="active">
+  <div id="banner" class="banner">Paper trading only. Nothing here can touch real money.</div>
+  <div class="grid"><div>
+    <div class="card"><h3>Today <span class="ago" id="todaydate"></span></h3>
+      <div class="kv">
+        <div><div class="k">Equity</div><div class="v" id="t_eq">—</div></div>
+        <div><div class="k">Day P&L</div><div class="v" id="t_pnl">—</div></div>
+        <div><div class="k">Daily loss stop</div><div class="v" id="t_budget">—</div></div>
+        <div><div class="k">Open positions</div><div class="v" id="t_open">—</div></div>
+        <div><div class="k">In open positions</div><div class="v sm" id="t_inopen">—</div></div>
+        <div><div class="k">Unrealized P&L</div><div class="v" id="t_unreal">—</div></div>
+        <div><div class="k">Cash</div><div class="v sm" id="t_cash">—</div></div>
+        <div><div class="k">Trades today</div><div class="v" id="t_trades">—</div></div>
+        <div><div class="k">Pending orders</div><div class="v" id="t_pending">—</div></div>
+        <div><div class="k">VIX</div><div class="v sm" id="t_vix">—</div></div>
+        <div><div class="k">Day ATR</div><div class="v sm" id="t_atr">—</div></div>
+        <div><div class="k">Vol vs 5d avg</div><div class="v sm" id="t_vol5">—</div></div>
+        <div><div class="k">Vol vs 30d avg</div><div class="v sm" id="t_vol30">—</div></div>
+      </div></div>
+    <div class="card" id="daycard"><h3>Market calendar <span class="ago" id="daydate"></span></h3><div id="dayevents" class="empty">Loading…</div></div>
+    <div class="card"><h3>Risk profile <span id="profchip2" class="chip research">…</span></h3>
+      <div class="seg" id="seg"></div><p id="profblurb"></p>
+      <div id="eff" style="margin-top:8px"></div></div>
+    <div class="card"><h3>Equity <span class="ago">closed trades, P&L in dollars</span></h3><canvas id="curve"></canvas></div>
+  </div><div>
+    <div class="card"><h3>Bot <span id="alive" class="chip off">…</span></h3><div id="botcard"></div></div>
+    <div class="card"><h3>Paper account</h3><div id="acct"></div></div>
+    <div class="card"><h3>Headlines <span class="ago">last 36h · traded symbols + watch list</span></h3><div id="news" class="empty">Loading…</div></div>
+    <div class="card" id="plan"><h3>ATR levels</h3><div class="empty">No pre-market plan yet.</div></div>
+  </div></div>
+  <div class="card" id="harness"><div class="empty">Checking the jobs…</div></div>
+</section>
+
+<section id="positions"><div class="card tbl" id="poslist"></div></section>
+
+<section id="activity">
+  <div class="card tbl"><h3>Trade journal</h3><div id="trades"></div></div>
+  <div class="card tbl"><h3>Rejections <span class="ago">7 days</span></h3><div id="rej"></div></div>
+  <div class="card tbl"><h3>Governance events</h3><div id="events"></div></div>
+</section>
+
+<section id="analytics"><div id="ana"></div></section>
+<section id="reports"><div class="card tbl"><h3>Upcoming events <span class="ago">next 30 days</span></h3><div id="upcoming"></div></div><div id="weeklylist"></div><div id="reportlist"></div></section>
+
+<section id="decisions">
+  <div class="card" id="deccard"><h3>Needs your call <span class="ago">borderline cases the review will not decide alone</span></h3><div id="decpending"></div></div>
+  <div class="card"><h3>Strategies <span class="ago">live · paper · shadow (lab + quarantine)</span></h3><div id="stratlist"></div></div>
+  <div class="card tbl"><h3>Your past calls</h3><div id="decresolved"></div></div>
+</section>
+<section id="settings">
+  <div class="card"><h3>Connection</h3>
+    <p>API address: <span class="mono" id="s_api">(this server)</span></p>
+    <div class="actions"><button class="btn" onclick="logout()">Sign out</button></div></div>
+  <div class="card" id="datacard"><h3>Your data</h3><div class="empty">Loading…</div></div>
+  <div class="card" id="cashcard"><h3>Cash movements</h3><div class="empty">Loading…</div></div>
+  <div class="card"><h3>Account reset</h3>
+    <p>After resetting the paper account at the broker, start a new ladder so Started with, the go-live drawdown and the banger peak restart at the new equity. The bot also detects a reset on its own when equity jumps with no trades that day.</p>
+    <div class="actions"><button class="btn warn" onclick="ladderReset()">Record an account reset</button></div></div>
+</section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const LS = { get api(){ try{return localStorage.getItem('apexpm_api')||''}catch(e){return ''} }, set api(v){ try{localStorage.setItem('apexpm_api',v)}catch(e){} },
+             get tok(){ try{return localStorage.getItem('apexpm_token')||''}catch(e){return ''} }, set tok(v){ try{localStorage.setItem('apexpm_token',v)}catch(e){} } };
+const fmt = (n,d=2) => n==null ? '—' : Number(n).toFixed(d);
+const money = n => n==null ? '—' : (n<0?'-':'') + '$' + Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const cls = n => n==null ? '' : n>0 ? 'pos' : n<0 ? 'neg' : '';
+const when = iso => { if(!iso) return '—'; const d = new Date(iso); if(isNaN(d)) return String(iso).slice(0,16).replace('T',' '); return d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); };
+const whenDay = iso => { if(!iso) return '—'; const s = String(iso); const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + 'T12:00:00') : new Date(s); return isNaN(d) ? s.slice(0,10) : d.toLocaleDateString(undefined,{month:'short',day:'numeric'}); };
+const nice = n => (n||'').replace(/_t\d{6}[a-z]$/,' (tuned)').replace(/_v(\d+)$/,' v$1').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+const pct = n => n==null ? '—' : (n>0?'+':'') + Number(n).toFixed(1) + '%';
+const signed = (n,d=2) => n==null ? '—' : (n>0?'+':'') + Number(n).toFixed(d);
+const WHY = {target:'Hit its target', runner_target:'Runner hit its target', stop:'Stopped out', initial_stop:'Stopped out', under_stop:'Fell through the stop', trail_stop:'Trailing stop', breakeven_stop:'Stopped at breakeven', max_hold:'Time ran out', flat_by:'Closed before the cutoff', expiry_cutoff:'Closed before expiry', broker_no_position:'Closed at the broker', persisted:'Carried over'};
+const why = r => r==null ? '—' : (WHY[r] || String(r).replace(/_/g,' '));
+const SIDE = {long:'Buy', short:'Sell short'};
+const ago = s => s==null ? '—' : s<60 ? s+'s ago' : s<3600 ? Math.round(s/60)+'m ago' : Math.round(s/3600)+'h ago';
+let chart;
+
+function ask(title, text, needNote=true){
+  return new Promise(res=>{
+    const m=$('#modal'); $('#m_title').textContent=title; $('#m_text').textContent=text||''; $('#m_note').value=''; $('#m_note').style.display=needNote?'block':'none';
+    m.style.display='flex';
+    const done=v=>{ m.style.display='none'; $('#m_ok').onclick=null; $('#m_cancel').onclick=null; res(v); };
+    $('#m_ok').onclick=()=>done($('#m_note').value.trim()); $('#m_cancel').onclick=()=>done(null);
+  });
+}
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none', 2500); }
+async function api(p, opts={}){
+  const base = LS.api; const headers = Object.assign({}, opts.headers||{});
+  if (LS.tok) headers['Authorization'] = 'Bearer ' + LS.tok;
+  const r = await fetch(base + p, Object.assign({}, opts, {headers}));
+  if (r.status === 401) { showLogin(); throw new Error('unauthorized'); }
+  if (r.status === 404 && !LS.api) { showLogin(); throw new Error('unauthorized'); }
+  if (!r.ok) throw new Error(p+' '+r.status + (r.status===404 ? ' (is the API address right?)' : ''));
+  return r.json();
+}
+function showLogin(){ $('#login').style.display='flex'; $('#l_api').value = LS.api; }
+function normApi(v){ v = (v||'').trim(); if(!v) return ''; if (!/^https?:\/\//i.test(v)) v = 'https://' + v; try { return new URL(v).origin; } catch(e) { return v.replace(/\/+$/,''); } }
+function normTok(v){ v = (v||'').trim(); if (v.includes('=')) v = v.slice(v.lastIndexOf('=')+1); return v.replace(/["'\s]/g,''); }
+function doLogin(){ LS.api = normApi($('#l_api').value); const t = normTok($('#l_tok').value); LS.tok = t;
+  if (!/^[a-z0-9]{24}$/.test(t)) { $('#l_err').textContent='Token looks wrong: got '+t.length+' characters ('+t.slice(0,2)+'…'+t.slice(-2)+'). It should be 24 lowercase letters and digits, the part after DASHBOARD_TOKEN= only.'; $('#l_err').style.display='block'; return false; }
+  $('#login').style.display='none'; loadAll().catch(e=>{ $('#l_err').textContent='Could not sign in: '+e.message+'. Token received: '+t.slice(0,2)+'…'+t.slice(-2)+' ('+t.length+' chars). API: '+LS.api; $('#l_err').style.display='block'; showLogin(); }); return false; }
+function logout(){ LS.tok=''; showLogin(); }
+function showErr(e){ if(e.message==='unauthorized') return; const el=$('#err'); el.style.display='block'; el.textContent='Dashboard error: '+e.message; }
+
+function renderBot(b){
+  const alive = $('#alive'); alive.textContent = b.alive ? 'running' : 'offline'; alive.className = 'chip ' + (b.alive?'live':'suspended');
+  const reg = Object.entries(b.regime||{}).map(([s,r])=>`${s}: ${r||'—'}`).join(' · ') || '—';
+  $('#botcard').innerHTML = `
+    <div class="row"><span>Market</span><b>${b.market||'—'}</b></div>
+    <div class="row"><span>Regime</span><b>${reg}</b></div>
+    <div class="row"><span>Live book</span><b>${(b.books&&b.books.live||[]).join(', ')||'none'}</b></div>
+    <div class="row"><span>Paper book</span><b style="white-space:normal;text-align:right">${(b.books&&b.books.paper||[]).join(', ')||'none'}</b></div>
+    <div class="row"><span>Shadow book (lab + quarantine)</span><b style="white-space:normal;text-align:right">${(b.books&&b.books.shadow||[]).join(', ')||'none'}</b></div>
+    <div class="row"><span>Decisions waiting</span><b class="${b.pending_decisions?'neg':''}">${b.pending_decisions||0}</b></div>
+    <div class="row"><span>Banger mode</span><b>${b.banger&&b.banger.active?'<span class="neg">ON · peak '+money(b.banger.peak)+' · floor '+(b.banger.floor_pct*100).toFixed(0)+'%</span>':'off (arms at +'+((b.banger?b.banger.trigger_pct:1)*100).toFixed(0)+'% day gain)'}</b></div>
+    <div class="row"><span>Go-live gate (${b.readiness?b.readiness.target_date:''})</span><b class="${b.readiness&&b.readiness.ready?'pos':'neg'}">${b.readiness?(b.readiness.ready?'READY':'NOT READY · '+b.readiness.checks.filter(c=>!c.ok).map(c=>c.name+' ('+c.value+')').join(', ')):'—'}</b></div>
+    <div class="row"><span>Kill switch</span><b>${b.halted?'<span class="neg">HALTED</span>':'armed · '+(b.effective.kill_dd_pct*100).toFixed(0)+'% DD'}</b></div>
+    <div class="row"><span>New entries</span><b>${b.entries_paused?'<span class="neg">PAUSED</span>':'<span class="pos">open</span>'}</b></div>
+    <div class="row"><span>Position cap</span><b>${b.positions_exception?'<span class="neg">EXCEPTION · up to '+b.max_positions_hard+' today</span>':(b.effective.max_positions+' (normal)')}</b></div>
+    <div class="row"><span>Updated</span><b class="ago">${ago(b.heartbeat_age_sec)}</b></div>
+    <div class="actions">${b.entries_paused
+      ? '<button class="btn ok" onclick="setPause(false)">Resume entries</button>'
+      : '<button class="btn warn" onclick="setPause(true)">Pause entries now</button>'}
+      <button class="btn" onclick="setProfile(\'conservative\')">Tighten (conservative)</button>
+      ${b.positions_exception
+        ? '<button class="btn" onclick="setPosEx(false)">Back to normal cap</button>'
+        : '<button class="btn" onclick="setPosEx(true)">Allow up to '+b.max_positions_hard+' today</button>'}</div>`;
+  const al = b.alerts || [];
+  $('#alerts').innerHTML = al.map(a=>{
+    const when = a.days===0 ? 'TODAY' : a.days===1 ? 'TOMORROW' : 'in '+a.days+' days';
+    const pol = 'size ×'+a.policy.size_mult + (a.policy.no_entry.length ? ' · no entries '+a.policy.no_entry.map(w=>w[0]+'–'+w[1]).join(', ') : '');
+    return `<div class="alert ${a.severity}${a.flash?' flash':''}"><span>${a.big?'⚠ ':''}${a.label}${a.symbol?' ('+a.symbol+')':''} · ${a.date}</span><b>${when} · ${pol}</b></div>`;
+  }).join('');
+  if (b.vix) { $('#t_vix').textContent = fmt(b.vix.last,2) + ' (' + (b.vix.chg>=0?'+':'') + fmt(b.vix.chg,2) + ')'; $('#t_vix').className = 'v sm ' + (b.vix.chg>0?'neg':'pos'); }
+  const v = (b.volume||{})[Object.keys(b.volume||{})[0]] || {};
+  $('#t_vol5').textContent = v.vs_avg5==null ? '—' : Math.round(v.vs_avg5*100)+'%';
+  $('#t_vol30').textContent = v.vs_avg30==null ? '—' : Math.round(v.vs_avg30*100)+'%';
+  const d = b.day;
+  if (d) {
+    $('#daydate').textContent = d.date;
+    $('#dayevents').className = d.events.length ? '' : 'empty';
+    $('#dayevents').innerHTML = d.events.length
+      ? d.events.map(e=>`<div class="row"><span>${e.label}</span><b class="${e.type==='earnings_self'?'neg':''}">${e.type.replace('_',' ')}</b></div>`).join('') +
+        `<div class="row"><span>Policy today</span><b>size ×${d.size_mult}${d.no_entry.length?' · no entries '+d.no_entry.map(w=>w[0]+'–'+w[1]).join(', '):''}${d.skip_symbols.length?' · skip '+d.skip_symbols.join(', '):''}</b></div>`
+      : 'No scheduled events today. Normal policy.';
+  }
+  ['#profchip','#profchip2'].forEach(s=>{ $(s).textContent=b.profile; $(s).className='chip '+(b.profile==='growth'?'live':b.profile==='conservative'?'suspended':'paper'); });
+  const e = b.effective;
+  $('#eff').innerHTML = `
+    <div class="row"><span>Risk per trade</span><b>${(e.max_pos_pct*100).toFixed(2)}% of equity</b></div>
+    <div class="row"><span>Max trades / day</span><b>${e.max_trades_per_day}</b></div>
+    <div class="row"><span>Max open positions</span><b>${e.max_positions}</b></div>
+    <div class="row"><span>Kelly fraction</span><b>×${fmt(e.kelly_fraction,2)}</b></div>
+    <div class="row"><span>Daily loss cap</span><b>${e.max_daily_loss_pct?(e.max_daily_loss_pct*100).toFixed(0)+'% of start equity':'<span class="pos">off (in-trade stops only)</span>'}</b></div>
+    <div class="row"><span>Stop cooldown</span><b>${e.stop_cooldown_min} min</b></div>
+    <p style="margin-top:8px">Hard ceilings in config still apply on every profile.</p>`;
+}
+
+const DUTY = {'public repo clean':'Nothing private is on the public repo','journal healthy':'The journal file passes its integrity check','journal backed up':'A verified backup was pulled off the server','bot alive':'The bot is running','strategies scanned':'Every strategy looked at today\'s market','postmortems':'Every closed trade has been replayed','brain':'The brain has learned from the latest replays','auditor':'The auditor checked the book','daily review':'The daily report was written','weekly recap':'The weekly recap was written','nightly tuner':'The overnight tuning pass ran'};
+const tidyTimes = s => String(s||'').replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?(\+00:00|Z)?/g, m => when(/\+00:00|Z$/.test(m) ? m : m.replace(' ','T') + 'Z'));
+let HARNESS_OPEN = false;
+async function loadHarness(){
+  try {
+    const w = await api('/api/warden'); const l = w.last; const el = $('#harness');
+    if(!l){ el.innerHTML = '<div class="empty">Job check: none yet. The first one runs 30 minutes after the bot starts.</div>'; return; }
+    const bad = l.checks.filter(c=>!c.ok);
+    const headline = bad.length ? `${bad.length} job${bad.length===1?'':'s'} need${bad.length===1?'s':''} attention: ${bad.map(c=>(DUTY[c.duty]||c.duty).toLowerCase()).join('; ')}` : 'All jobs done';
+    el.innerHTML = `<details ${HARNESS_OPEN?'open':''} ontoggle="HARNESS_OPEN=this.open"><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:#fff;font-weight:700">
+        <span>${bad.length?'⚠️':'✅'} ${headline} <span class="ago" style="font-weight:400">· checked ${when(l.ts)}</span></span><span class="ago">details ▾</span></summary>
+      <div style="margin-top:10px">` +
+      l.checks.map(c=>`<div class="row"><span style="white-space:normal">${c.ok?'✅':'⚠️'} ${DUTY[c.duty]||c.duty}<div class="dim">${tidyTimes(c.detail)}</div></span></div>`).join('') +
+      `<p class="ago" style="margin-top:6px">Checked every 30 minutes. Jobs the warden can redo itself get redone before you see a warning.</p></div></details>`;
+  } catch(e) {}
+}
+async function loadHome(){
+  loadHarness();
+  const o = await api('/api/overview');
+  const m = $('#mode'); m.textContent = o.dry_run?'DRY RUN':o.paper?'Paper':'LIVE'; m.className='chip '+(o.dry_run?'dry':o.paper?'paper':'live');
+  const a = o.account; const eq = a.connected ? a.equity : null;
+  $('#heq').textContent = eq!=null ? money(eq) : '—';
+  $('#todaydate').textContent = o.today.date;
+  $('#t_eq').textContent = eq!=null ? money(eq) : '—';
+  $('#t_pnl').textContent = money(o.today.realized_pnl); $('#t_pnl').className='v '+cls(o.today.realized_pnl);
+  $('#t_budget').textContent = o.today.loss_budget_left == null ? 'Off' : money(o.today.loss_budget_left) + ' left';
+  $('#t_open').textContent = `${o.today.open_positions} / ${o.today.max_positions}`;
+  $('#t_inopen').textContent = money(o.today.in_open_notional);
+  $('#t_unreal').textContent = money(o.today.unrealized_pnl); $('#t_unreal').className='v '+cls(o.today.unrealized_pnl);
+  $('#t_cash').textContent = a.connected ? money(a.cash) : '—';
+  $('#t_trades').textContent = o.today.trades; $('#t_pending').textContent = o.today.pending;
+  const bn = $('#banner');
+  if (o.dry_run) { bn.className='banner warn'; bn.textContent='DRY RUN. Signals are journaled; no orders are sent.'; }
+  else if (o.paper) { bn.className='banner'; bn.textContent='Paper trading only. Nothing here can touch real money.'; }
+  else { bn.className='banner bad'; bn.textContent='LIVE. Real money.'; }
+  renderBot(o.bot);
+  $('#acct').innerHTML = a.connected ? `
+    <div class="row"><span>Equity</span><b>${money(a.equity)}</b></div>
+    <div class="row"><span>Cash</span><b>${money(a.cash)}</b></div>
+    <div class="row"><span>Buying power</span><b>${money(a.buying_power)}</b></div>
+    <div class="row"><span>Realized P&L (all time)</span><b class="${cls(o.all_time.realized_pnl)}">${money(o.all_time.realized_pnl)}</b></div>
+    <div class="row"><span>Closed trades</span><b>${o.all_time.closed} · win ${o.all_time.win_rate==null?'—':Math.round(o.all_time.win_rate*100)+'%'}</b></div>
+    <div class="row"><span>Expectancy</span><b class="${cls(o.all_time.expectancy_r)}">${o.all_time.expectancy_r==null?'—':(o.all_time.expectancy_r>=0?'+':'')+fmt(o.all_time.expectancy_r)+'R'}</b></div>
+    <div class="row"><span>Max drawdown</span><b>${fmt(o.all_time.max_dd_r,1)}R</b></div>
+    <div class="row"><span>Started with</span><b>${o.ladder_start?money(o.ladder_start):(o.starting_equity?money(o.starting_equity):'—')}</b></div>`
+    : `<div class="empty">Broker not connected on the API server${a.error?': '+a.error:''}.</div>`;
+  const labels = o.curve.map((_,i)=>i+1), data = o.curve.map(p=>p.cum_pnl!=null?p.cum_pnl:p.r);
+  if(chart) chart.destroy();
+  chart = new Chart($('#curve'), {type:'line', data:{labels, datasets:[{data, borderColor:'#38bdf8', backgroundColor:'rgba(56,189,248,.12)', fill:true, tension:.25, pointRadius:0, borderWidth:2}]},
+    options:{plugins:{legend:{display:false}}, scales:{x:{display:false}, y:{grid:{color:'#222b48'}, ticks:{color:'#6b7299', font:{family:'JetBrains Mono', size:10}}}}, animation:false}});
+  try {
+    const nw = await api('/api/news');
+    $('#news').className = nw.length ? '' : 'empty';
+    $('#news').innerHTML = nw.length ? nw.map(n=>`<div class="row" style="align-items:flex-start"><span style="white-space:normal;padding-right:8px"><a href="${n.url||'#'}" target="_blank" rel="noopener" style="color:#fff;text-decoration:none">${n.headline}</a><br><span class="ago">${(n.created_at||'').slice(5,16).replace('T',' ')} · ${n.source||''} · ${(n.symbols||[]).slice(0,5).join(' ')}</span></span></div>`).join('') : 'No headlines yet.';
+  } catch(e) {}
+  const plan = await api('/api/plan');
+  if(plan){
+    PLAN = plan;
+    const lv = plan.levels;
+    $('#t_atr').textContent = fmt(lv.atr) + ' (' + (lv.atr/lv.anchor*100).toFixed(2) + '%)';
+    renderPlan();
+  }
+  const st = await api('/api/settings');
+  const keys = ['auto'].concat(Object.keys(st.profiles));
+  $('#seg').style.gridTemplateColumns = 'repeat('+keys.length+',1fr)';
+  $('#seg').innerHTML = keys.map(k=>`<button class="${(st.profile_mode==='auto'?k==='auto':k===st.profile)?'on':''}" onclick="setProfile('${k}')">${k}${k==='auto'?' ('+st.profile+')':''}</button>`).join('');
+  $('#profblurb').textContent = (st.profile_mode==='auto' ? 'Auto by equity: hyper growth to $10k (no daily stop, full size, 20 trades), growth to $50k (first safeguards), standard above. Now: ' : '') + st.profiles[st.profile].blurb;
+}
+let PLAN = null, PLAN_SYM = null;
+function ladder(m, price, extra){
+  // one ladder, highest level first, with the price marker slotted where it sits; extra = other key levels
+  const ks = Object.keys(m).filter(k=>k.startsWith('+')).map(k=>k.slice(1)).sort((a,b)=>parseFloat(b)-parseFloat(a));   // keep the key text: "+1.0" is not "+1"
+  const rows = [];
+  ks.forEach(k=>rows.push({label:'+'+parseFloat(k), v:m['+'+k], cls:'up'}));
+  rows.push({label:'Previous close', v:m.anchor, cls:'anchor'});
+  ks.slice().reverse().forEach(k=>rows.push({label:'−'+parseFloat(k), v:m['-'+k], cls:'dn'}));
+  (extra||[]).forEach(e=>{ if(e.v) rows.push({label:e.label, v:e.v, cls:'', style:e.style||''}); });
+  rows.sort((a,b)=>b.v-a.v);
+  let out = '', placed = price==null;
+  rows.forEach(r=>{
+    if(!placed && price > r.v){ out += `<div class="lv" style="border-left:3px solid #fff;background:#1f2a4d"><span>Price now</span><b>${fmt(price)}</b></div>`; placed = true; }
+    out += `<div class="lv ${r.cls}" style="${r.style||''}"><span>${r.label}</span><b>${fmt(r.v)}</b></div>`;
+  });
+  if(!placed) out += `<div class="lv" style="border-left:3px solid #fff;background:#1f2a4d"><span>Price now</span><b>${fmt(price)}</b></div>`;
+  return `<div class="levels" style="grid-template-columns:1fr">${out}</div>`;
+}
+function renderPlan(){
+  const plan = PLAN; if(!plan) return;
+  const plans = (plan.plans && plan.plans.length) ? plan.plans : [plan];
+  if(!PLAN_SYM || !plans.some(p=>p.symbol===PLAN_SYM)) PLAN_SYM = plans.some(p=>p.symbol==='SPY') ? 'SPY' : plans[0].symbol;
+  const p = plans.find(x=>x.symbol===PLAN_SYM);
+  const lv = p.levels, r = p.range || {}, price = p.last_price ?? r.last ?? null;
+  const chips = plans.length > 1 ? `<div class="tabs" style="padding:0;margin:0 0 8px">${plans.map(x=>`<button class="${x.symbol===PLAN_SYM?'on':''}" onclick="PLAN_SYM='${x.symbol}';renderPlan()" style="padding:6px 10px">${x.symbol}</button>`).join('')}</div>` : '';
+  let where = '';
+  if(price!=null){
+    const d = (price - lv.anchor) / lv.atr;
+    const ups = Object.keys(lv).filter(k=>k.startsWith('+')).map(k=>parseFloat(k.slice(1))).sort((a,b)=>a-b);
+    const ad = Math.abs(d); let below = 0, above = null;
+    ups.forEach(k=>{ if(k<=ad) below = k; else if(above==null) above = k; });
+    const side = d>=0 ? 'above' : 'below';
+    const band = above==null ? `beyond the ${d>=0?'+':'−'}${below} level` : `between ${d>=0?'+':'−'}${below||'0'} and ${d>=0?'+':'−'}${above}`;
+    where = `<p style="margin:6px 0 10px;white-space:normal">Price is <b class="${cls(d)}">${ad.toFixed(2)} ATR ${side}</b> the previous close, ${band}.${r.open?` It opened at ${fmt(r.open)} (${(r.open>=lv.anchor?'+':'')}${((r.open-lv.anchor)/lv.atr).toFixed(2)} ATR).`:''}</p>`;
+  }
+  const sl = p.session_levels || {}, g = p.gex;
+  const extra = [
+    {label:'Pre-market high', v:sl.pm_high, style:'border-left:3px solid #8b5cf6'}, {label:'Pre-market low', v:sl.pm_low, style:'border-left:3px solid #8b5cf6'},
+    {label:'Opening-range high', v:sl.or_high, style:'border-left:3px solid #f59e0b'}, {label:'Opening-range low', v:sl.or_low, style:'border-left:3px solid #f59e0b'},
+  ];
+  const gexLine = p.gex_text ? `<p class="ago" style="margin:0 0 6px;white-space:normal">Overlay: ${p.gex_text}.</p>` : '';
+  const strip = `<div class="kv" style="margin:6px 0 4px"><div><div class="k">Price now</div><div class="v sm">${price!=null?fmt(price):'—'}</div></div><div><div class="k">Previous close</div><div class="v sm">${fmt(lv.anchor)}</div></div><div><div class="k">Today's open</div><div class="v sm">${r.open?fmt(r.open):'—'}</div></div><div><div class="k">Day high</div><div class="v sm pos">${r.high?fmt(r.high):'—'}</div></div><div><div class="k">Day low</div><div class="v sm neg">${r.low?fmt(r.low):'—'}</div></div><div><div class="k">Day ATR</div><div class="v sm">${fmt(lv.atr)} <span class="ago">${(lv.atr/lv.anchor*100).toFixed(1)}%${r.high&&r.low?` · ${Math.round((r.high-r.low)/lv.atr*100)}% used`:''}</span></div></div></div>`;
+  const other = (title, m) => m ? `<details style="margin-top:8px"><summary style="font-size:12px;color:var(--dim);cursor:pointer">${title} levels · anchor ${fmt(m.anchor)} · ATR ${fmt(m.atr)} (${(m.atr/m.anchor*100).toFixed(1)}%)</summary>${ladder(m, price)}</details>` : '';
+  $('#plan').innerHTML = `<h3>Key levels <span class="ago">${p.symbol} · ${whenDay(p.date)}</span></h3>${chips}${strip}${where}
+    ${gexLine}<p style="margin:4px 0 6px;color:#fff;font-weight:600">Today's ladder <span class="ago">ATR steps plus pre-market, opening-range and overlay levels</span></p>${ladder(lv, price, extra)}${other('Week', p.week)}${other('Month', p.month)}`;
+}
+function greeks(t){
+  const g=(x,v)=>{ if(!x) return 'n/a'; const p=[]; if(x.delta!=null)p.push('Δ'+x.delta.toFixed(2)); if(x.gamma!=null)p.push('Γ'+x.gamma.toFixed(3)); if(x.theta!=null)p.push('Θ'+x.theta.toFixed(2)); if(x.vega!=null)p.push('ν'+x.vega.toFixed(2)); if(x.iv!=null)p.push('IV '+(x.iv*100).toFixed(0)+'%'); if(v!=null)p.push('VIX '+v.toFixed(1)); return p.join(' '); };
+  if(!t.greeks_entry && !t.greeks_exit) return '';
+  return '<br><span class="ago">buy: '+g(t.greeks_entry,t.vix_entry)+(t.greeks_exit?' → sell: '+g(t.greeks_exit,t.vix_exit):'')+'</span>';
+}
+async function runWeekly(){
+  const note = await ask('Run the weekly recap now', 'Writes this week\'s recap and emails it if SMTP is configured. Type "email" to send it.'); if(note===null) return;
+  const r = await api('/api/weekly/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email: /email/i.test(note||'')})});
+  if(r && r.ok){ loadReports(); }
+}
+async function setPosEx(on){
+  const note = await ask(on?'Lift position cap for today':'Back to the normal cap', on?'Up to 5 open positions until the end of the day (adds to a position still count as one).':'Normal cap applies again.'); if(note===null) return;
+  const r = await api('/api/settings/positions_exception',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on,note})});
+  if(r && r.ok){ load(); }
+}
+async function setPause(paused){
+  const note = await ask((paused?'Pause':'Resume')+' new entries', paused?'No new positions until resumed. Exits keep running.':'New entries allowed again.'); if(note===null) return;
+  const r = await api('/api/settings/pause',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paused,note})});
+  if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadHome().catch(showErr);
+}
+async function setProfile(name){
+  const note = await ask('Switch risk profile to '+name, 'Applies on the next scan. Recorded as a governance event.'); if(note===null) return;
+  const r = await api('/api/settings/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile:name,note})});
+  if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadHome().catch(showErr);
+}
+
+async function loadPositions(){
+  const ps = await api('/api/positions');
+  $('#poslist').innerHTML = `<h3>Open & pending <span class="ago">${ps.length} rows</span></h3>` + (ps.length ? '<table><tr><th>#</th><th>Status</th><th>Setup</th><th>Dir</th><th>Qty</th><th>Entry</th><th>Last</th><th>Unreal</th><th>R</th><th>To target</th><th>To stop</th><th>Held</th><th>Max hold</th></tr>' +
+    ps.map(t=>`<tr><td>${t.id}</td><td>${t.status}</td><td>${t.setup}${t.contract?'<br><span class="ago">'+t.contract+'</span>':''}</td><td>${t.direction}</td><td>${t.qty}</td><td>${fmt(t.entry)}</td><td>${fmt(t.last_price)}</td><td class="${cls(t.unrealized_pnl)}">${t.unrealized_pnl==null?'—':money(t.unrealized_pnl)}</td><td class="${cls(t.unrealized_r)}">${fmt(t.unrealized_r)}</td><td>${fmt(t.to_target)}</td><td>${fmt(t.to_stop)}</td><td>${t.held_min==null?'—':t.held_min+'m'}</td><td>${t.max_hold_min}m</td></tr>`).join('') + '</table>'
+    : '<div class="empty">No open or pending positions.</div>');
+}
+
+async function loadActivity(){
+  const ts = await api('/api/trades');
+  $('#trades').innerHTML = ts.length ? '<table><tr><th>#</th><th>Opened</th><th>Setup</th><th>Dir</th><th>Qty</th><th>Entry</th><th>Stop</th><th>Target</th><th>Exit</th><th>Reason</th><th>R</th><th>P&L</th><th>Mode</th><th>Status</th></tr>' +
+    ts.map(t=>`<tr><td>${t.id}</td><td>${when(t.opened_at)}</td><td>${t.setup}${t.contract?'<br><span class="ago">'+t.contract+'</span>':''}${greeks(t)}</td><td>${t.direction}</td><td>${t.qty}</td><td>${fmt(t.entry)}</td><td>${fmt(t.stop)}</td><td>${fmt(t.target)}</td><td>${fmt(t.exit_price)}</td><td>${t.exit_reason||''}</td><td class="${cls(t.rr_realized)}">${t.rr_realized==null?'—':fmt(t.rr_realized)}</td><td class="${cls(t.pnl)}">${t.pnl==null?'—':money(t.pnl)}</td><td>${t.mode}</td><td>${t.status}</td></tr>`).join('') + '</table>' : '<div class="empty">No trades journaled yet.</div>';
+  const rj = await api('/api/rejections');
+  $('#rej').innerHTML = rj.length ? '<table><tr><th>Date</th><th>Setup</th><th>Reason</th><th>N</th></tr>' + rj.map(r=>`<tr><td>${r.date}</td><td>${r.setup}</td><td>${r.reason}</td><td>${r.n}</td></tr>`).join('') + '</table>' : '<div class="empty">No rejections in the last 7 days.</div>';
+  const ev = await api('/api/events');
+  $('#events').innerHTML = ev.length ? '<table><tr><th>When</th><th>Who</th><th>Event</th><th>Detail</th></tr>' + ev.map(e=>`<tr><td>${when(e.ts)}</td><td>${e.name}</td><td>${e.event}</td><td style="white-space:normal">${e.detail||''}</td></tr>`).join('') + '</table>' : '<div class="empty">No events.</div>';
+}
+
+const GROUP_LABELS = {by_strategy:['By strategy','Strategy'], by_direction:['Buys vs. short sales','Side'], by_hour:['By time of day (New York)','Hour'], by_weekday:['By day of the week','Day'], by_exit:['How trades ended','Ending'], by_regime:['By market mood','Mood'], by_conviction:['By confirmations at entry','Confirmations'], by_asset_class:['Stocks, options, crypto','Type'], by_symbol:['By ticker','Ticker'], by_strategy_symbol:['Strategy and ticker','Pair'], by_entry_delta:['Options: delta when bought','Delta'], by_entry_iv:['Options: implied volatility when bought','IV'], by_entry_vix:['By market fear (VIX) at entry','VIX']};
+function keyLabel(group, k){
+  if(group==='by_hour'){ const h=parseInt(k,10); if(isNaN(h)) return k; return (h%12||12)+(h<12?' AM':' PM'); }
+  if(group==='by_direction') return SIDE[k]||k;
+  if(group==='by_exit') return why(k);
+  if(group==='by_strategy') return nice(k);
+  if(group==='by_strategy_symbol') return k.split(' · ').map((x,i)=>i?x:nice(x)).join(' · ');
+  return k;
+}
+function tbl(group, rows){
+  rows = (rows||[]).filter(r=>r.key!=='?' && !(group.startsWith('by_entry_') && (r.key==='stock'||r.key==='n/a')));
+  if(!rows.length) return '';
+  const [title, col] = GROUP_LABELS[group] || [group, 'Group'];
+  return `<div class="card tbl"><h3>${title}</h3><table><tr><th>${col}</th><th>Trades</th><th>Won</th><th>Avg per trade</th><th>Total</th></tr>` +
+    rows.map(r=>`<tr><td style="white-space:normal">${keyLabel(group, r.key)}</td><td>${r.n}</td><td>${Math.round(r.win*100)}%</td><td class="${cls(r.exp_r)}">${signed(r.exp_r)}× risk</td><td class="${cls(r.total_r)}">${signed(r.total_r,1)}× risk</td></tr>`).join('') + '</table></div>';
+}
+function spark(curve, key){
+  const pts = (curve||[]).map(c=>c[key]); if(pts.length<2) return '';
+  const w=120,h=34,mn=Math.min(0,...pts),mx=Math.max(0,...pts),rg=(mx-mn)||1;
+  const xy = pts.map((v,i)=>[(i/(pts.length-1))*w, h-((v-mn)/rg)*h]);
+  const zero = h-((0-mn)/rg)*h; const last = pts[pts.length-1];
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><line x1="0" y1="${zero}" x2="${w}" y2="${zero}" stroke="#2a3558" stroke-width="1"/><polyline fill="none" stroke="${last>=0?'var(--green)':'var(--red)'}" stroke-width="2" points="${xy.map(p=>p.map(v=>v.toFixed(1)).join(',')).join(' ')}"/></svg>`;
+}
+const TREND_WORD = {up:['▲','improving','up'], down:['▼','slipping','dn'], flat:['■','steady','flat'], 'n/a':['','',''] };
+function trendTxt(s){
+  if(s.trend_attain==='n/a' && s.trend_exp==='n/a') return s.n ? `Needs ${Math.max(0, 20 - s.n)} more trades to show a trend.` : '';
+  const a = TREND_WORD[s.trend_attain]||TREND_WORD['n/a'], e = TREND_WORD[s.trend_exp]||TREND_WORD['n/a'];
+  return `Last 10 trades: hit target ${Math.round((s.last_roll_attain||0)*100)}% <span class="${a[2]}">${a[0]} ${a[1]}</span> · avg ${signed(s.last_roll_exp_r)}× risk <span class="${e[2]}">${e[0]} ${e[1]}</span>`;
+}
+function extreme(x, label){
+  if(!x || (!x.usd && !x.pct)) return `<div><div class="k">${label}</div><span class="d">none yet</span></div>`;
+  const u = x.usd || x.pct, p = x.pct || x.usd;
+  const same = u.id === p.id;
+  return `<div><div class="k">${label}</div><b class="${cls(u.pnl)}">${money(u.pnl)}</b> <span class="d">(${pct(u.pnl_pct)}) ${u.symbol}, ${whenDay(u.closed_at)}</span>` +
+    (same ? '' : `<br><b class="${cls(p.pnl)}">${pct(p.pnl_pct)}</b> <span class="d">(${money(p.pnl)}) ${p.symbol}, ${whenDay(p.closed_at)} — biggest by percent</span>`) + '</div>';
+}
+function stratCard(s){
+  const open = s.open ? `<span class="chip paper">${s.open} open now</span>` : '';
+  const other = Object.entries(s.n_by_mode||{}).filter(([m])=>m!==s.mode).map(([m,n])=>`${n} earlier ${m==='PAPER'?'paper':m==='LIVE'?'live':'lab'} trade${n===1?'':'s'}`).join(', ');
+  const body = s.n ? `<div class="big">
+      <div><div class="k">Net result</div><div class="v ${cls(s.pnl)}">${money(s.pnl)}</div></div>
+      <div><div class="k">Trades</div><div class="v">${s.n}</div></div>
+      <div><div class="k">Won</div><div class="v">${Math.round(s.win_rate*100)}%</div></div>
+      <div><div class="k">Hit target</div><div class="v">${Math.round(s.attainment*100)}%</div></div>
+      <div><div class="k">Avg vs. risk</div><div class="v ${cls(s.exp_r)}">${signed(s.exp_r)}×</div></div>
+      <div><div class="k">Gave it back</div><div class="v ${s.gave_back?'neg':''}">${s.gave_back}</div></div>
+    </div>
+    <div class="ext">${extreme(s.biggest_win,'Biggest win')}${extreme(s.biggest_loss,'Biggest loss')}</div>${earnedTxt(s.earned)}${lessonsTxt(s.lessons)}
+    <div class="trend">${spark(s.curve,'cum_pnl')}<div>${trendTxt(s)}${s.expected_r!=null && s.drift_r!=null ? `<br>Backtest promised ${signed(s.expected_r)}× risk per trade; running ${signed(s.drift_r)}× vs. that.` : ''}</div></div>`
+    : `<p class="empty">No closed trades yet in this book${other?` (${other})`:''}.</p>`;
+  return `<div class="sc" onclick="openStrat('${s.name}')"><div class="nm"><span>${nice(s.name)}</span>${open}<span class="chip ${s.status}">${s.label}</span></div><div class="desc">${s.description} · ${s.symbols.join(', ')}</div>${body}<div class="more">See every trade ›</div></div>`;
+}
+const TIER_TEXT = {active:['Trading real money','Strategies that place orders on the live account.','Nothing is trading real money yet. Strategies earn their way here by passing the go-live bar on the practice account.'],
+                   paper:['Practice account (paper)','Strategies placing orders on the paper account. Real prices, pretend money. This is what the go-live decision is judged on.','No strategy is in the practice book.'],
+                   lab:['In the lab','Strategies being watched only. They log what they would have done, but never place an order.','The lab is empty.']};
+let ANA_DAYS = 0;
+const WINDOWS = [[0,'All time'],[90,'90 days'],[30,'30 days'],[7,'7 days'],[1,'24 hours']];
+function windowSeg(){ return `<div class="seg" style="grid-template-columns:repeat(5,1fr)">${WINDOWS.map(([d,l])=>`<button class="${ANA_DAYS===d?'on':''}" onclick="ANA_DAYS=${d};loadAnalytics()">${l}</button>`).join('')}</div>`; }
+function lessonsTxt(L){
+  if(!L) return '';
+  let html = '';
+  if(L.n_with_bars){
+    const recs = (L.recommendations||[]).map(r=>`<div class="row"><span style="white-space:normal">💡 ${r.text}</span></div>`).join('');
+    html += `<div class="ext" style="grid-template-columns:1fr"><div><div class="k">What the replays taught us</div>${L.summary}${recs}</div></div>`;
+  }
+  const P = L.patterns;
+  if(P && (P.losers || P.winners)){
+    const grp = (g, label, color) => g && g.traits && g.traits.length ? `<div><div class="k">${label} · ${g.n} trades · <b class="${color}">${money(g.pnl)}</b></div>${g.traits.map(t=>`${t.trait.replace(/^(\w+): /,(m,k)=>k+': ')} <span class="d">(${t.count} of ${t.of})</span>`).join('<br>')}</div>` : (g ? `<div><div class="k">${label} · ${g.n} trades · <b class="${color}">${money(g.pnl)}</b></div><span class="d">nothing they clearly share yet</span></div>` : '');
+    html += `<div class="ext">${grp(P.losers,'Biggest losses had in common','neg')}${grp(P.winners,'Biggest wins had in common','pos')}</div>`;
+    if(P.fixes && P.fixes.length) html += `<div class="ext" style="grid-template-columns:1fr"><div><div class="k">Easy fixes to consider (also filed as decisions)</div>${P.fixes.map(f=>`<div class="row"><span style="white-space:normal">🔧 ${f}</span></div>`).join('')}</div></div>`;
+  }
+  return html;
+}
+function earnedTxt(E){
+  if(!E) return '';
+  const names = {proving:'proving itself', earning:'earning more size', proven:'proven', stacking:'stacking'};
+  return `<div class="ext" style="grid-template-columns:1fr"><div><div class="k">Earned size</div><b>×${E.mult.toFixed(2)}</b> · ${names[E.name]||E.name}${E.guard?` · <span class="neg">stepped down: ${E.guard}</span>`:''}<br><span class="d">${E.next} Judged on the last ${E.window||30} filled trades: ${E.wins} wins of ${E.n}, win rate ${Math.round((E.win_rate||0)*100)}%.</span></div></div>`;
+}
+async function loadAnalytics(){
+  const el = $('#ana');
+  if(el.dataset.open){ return openStrat(el.dataset.open, true); }
+  const [t, a] = await Promise.all([api('/api/strategy/analytics' + (ANA_DAYS?'?days='+ANA_DAYS:'')), api('/api/analytics')]);
+  const scope = windowSeg();
+  const tiers = t.tiers.map(tier=>{ const [h, sub, empty] = TIER_TEXT[tier.tier];
+    const tot = tier.strategies.some(s=>s.n) ? `<span class="${cls(tier.pnl)}" style="font-family:'JetBrains Mono',monospace;font-size:13px">${money(tier.pnl)} over ${tier.n} trade${tier.n===1?'':'s'}</span>` : '';
+    return `<div class="tier"><h2>${h}</h2><p>${tot ? tot + ' · ' : ''}${sub}</p>${tier.strategies.length ? tier.strategies.map(stratCard).join('') : `<div class="empty">${empty}</div>`}</div>`; }).join('');
+  const groups = a.n ? `<div class="tier"><h2>Where the results come from</h2><p>All closed trades, all time, grouped different ways. "× risk" means a multiple of what the trade risked: +1.0× is a full winner, −1.0× is a full stop.</p></div>` +
+    ['by_exit','by_hour','by_weekday','by_direction','by_symbol','by_strategy_symbol','by_regime','by_conviction','by_asset_class','by_entry_delta','by_entry_iv','by_entry_vix'].map(g=>tbl(g, a[g])).join('') : '';
+  el.innerHTML = scope + tiers + groups;
+}
+let DRILL = null;
+async function openStrat(name, keep){
+  const el = $('#ana'); el.dataset.open = name;
+  const d = await api('/api/strategy/trades?name=' + encodeURIComponent(name) + '&limit=1000' + (ANA_DAYS?'&days='+ANA_DAYS:''));
+  DRILL = d; if(!keep) window.scrollTo(0,0);
+  const s = d.summary;
+  const opt = (arr, labelFn) => '<option value="">All</option>' + arr.map(v=>`<option value="${v}">${labelFn?labelFn(v):v}</option>`).join('');
+  el.innerHTML = `<button class="back" onclick="closeStrat()">‹ Back to all strategies</button>
+    <div class="card"><h3>${nice(name)} <span class="ago">${d.trades.length} trade${d.trades.length===1?'':'s'} on record</span></h3>
+    ${s.n ? `<div class="kv"><div><div class="k">Net result</div><div class="v sm ${cls(s.pnl)}">${money(s.pnl)}</div></div><div><div class="k">Won</div><div class="v sm">${Math.round(s.win_rate*100)}% of ${s.n}</div></div><div><div class="k">Hit target</div><div class="v sm">${Math.round(s.attainment*100)}%</div></div></div>
+    <div class="trend">${spark(s.curve,'cum_pnl')}<div>${trendTxt(s)}</div></div>` : '<p class="empty">No closed trades yet.</p>'}
+    </div>
+    <div class="filters">
+      <div><label>Ticker</label><select id="f_sym" onchange="drawDrill()">${opt(d.symbols)}</select></div>
+      <div><label>Result</label><select id="f_res" onchange="drawDrill()"><option value="">All</option><option value="win">Winners</option><option value="loss">Losers</option><option value="open">Still open</option></select></div>
+      <div><label>How it ended</label><select id="f_why" onchange="drawDrill()">${opt(d.exit_reasons, why)}</select></div>
+      <div><label>Account</label><select id="f_mode" onchange="drawDrill()">${opt(d.modes, m=>({PAPER:'Practice (paper)',LIVE:'Real money',DRY_RUN:'Lab (watch only)'})[m]||m)}</select></div>
+    </div>
+    <div id="drill"></div>`;
+  drawDrill();
+}
+function closeStrat(){ delete $('#ana').dataset.open; loadAnalytics(); }
+function drawDrill(){
+  if(!DRILL) return;
+  const sym=$('#f_sym').value, res=$('#f_res').value, w=$('#f_why').value, mode=$('#f_mode').value;
+  let rows = DRILL.trades.filter(t=>(!sym||t.symbol===sym)&&(!w||t.exit_reason===w)&&(!mode||t.mode===mode));
+  if(res==='win') rows = rows.filter(t=>t.pnl>0); else if(res==='loss') rows = rows.filter(t=>t.status==='closed'&&t.pnl<=0); else if(res==='open') rows = rows.filter(t=>t.status!=='closed');
+  const net = rows.reduce((a,t)=>a+(t.pnl||0),0), closed = rows.filter(t=>t.status==='closed').length;
+  $('#drill').innerHTML = `<p class="ago" style="margin-bottom:8px">${rows.length} shown · ${closed} closed · net <span class="${cls(net)}">${money(net)}</span></p>` + (rows.length ? rows.map(t=>{
+    const isOpen = t.status!=='closed';
+    const head = isOpen ? `<span class="chip paper">${t.status}</span>` : `<b class="${cls(t.pnl)}">${money(t.pnl)}</b> <span class="ago">${pct(t.pnl_pct)}</span>`;
+    const flag = t.reached && !t.attained ? ' <span class="neg">reached the target, then gave it back</span>' : '';
+    return `<div class="tr"><div class="h"><span>${t.symbol} · ${SIDE[t.direction]||t.direction} ${t.qty} ${t.asset==='option'?'contract':'share'}${t.qty==1?'':'s'}${t.contract?' · '+t.contract:''}</span>${head}</div>
+      <div class="m">Opened <span>${when(t.opened_at)}</span> at <span>${fmt(t.entry)}</span>${isOpen?'':` · closed <span>${when(t.closed_at)}</span> at <span>${fmt(t.exit_price)}</span> · <span>${why(t.exit_reason)}</span>${flag}`}<br>
+      Stop <span>${fmt(t.stop)}</span> · target <span>${fmt(t.target)}</span>${t.rr_realized!=null?` · result <span class="${cls(t.rr_realized)}">${signed(t.rr_realized)}× risk</span>`:''}${t.held_min!=null?` · held <span>${t.held_min<60?t.held_min+' min':(t.held_min/60).toFixed(1)+' h'}</span>`:''}${t.conviction!=null?` · <span>${t.conviction}</span> confirmations`:''}${t.regime?` · market <span>${t.regime}</span>`:''}</div>${t.review_text?`<div class="m" style="margin-top:6px;border-top:1px solid var(--line);padding-top:6px">🔁 <span>${t.review?.verdict||''}</span> — ${t.review_text}</div>`:''}</div>`; }).join('') : '<div class="empty">Nothing matches those filters.</div>');
+}
+
+async function loadReports(){
+  const c = await api('/api/calendar');
+  $('#upcoming').innerHTML = c.upcoming.length ? '<table><tr><th>Date</th><th>Event</th><th>Size</th><th>No-entry windows</th></tr>' +
+    c.upcoming.map(e=>`<tr><td>${e.date}</td><td>${e.label}</td><td>×${e.size_mult}</td><td>${(e.no_entry||[]).map(w=>w[0]+'–'+w[1]).join(', ')||'—'}</td></tr>`).join('') + '</table>' : '<div class="empty">No events in the next 30 days.</div>';
+  const ws = await api('/api/weekly') || [];
+  $('#weeklylist').innerHTML = '<div class="card"><h3>Weekly recaps <button class="btn" style="float:right" onclick="runWeekly()">Run recap now</button></h3>' +
+    (ws.length ? ws.map(w=>`<details style="margin-top:8px"><summary style="font-size:13px">Week ending ${w.week_end} · <span class="${cls(w.realized_pnl)}">${money(w.realized_pnl)}</span> · ${w.trades} trades · ${w.emailed_at?'emailed':'not emailed'}</summary><pre>${(w.notes||'').replace(/</g,'&lt;')}</pre></details>`).join('')
+     : '<div class="empty">No weekly recap yet. Written every Friday after the close (5:30pm PT) and emailed when SMTP is configured.</div>') + '</div>';
+  const rs = await api('/api/reports');
+  $('#reportlist').innerHTML = rs.length ? rs.map(r=>`<div class="card"><h3>${r.date}<span class="chip ${(r.realized_pnl||0)>=0?'live':'suspended'}">${money(r.realized_pnl)}</span></h3>
+    <p class="mono">trades ${r.trades} · wins ${r.wins} · overholds ${r.overholds} · rejections ${r.rejections}</p><details style="margin-top:8px"><summary style="font-size:12px;color:var(--dim)">Full report</summary><pre>${(r.notes||'').replace(/</g,'&lt;')}</pre></details></div>`).join('')
+    : '<div class="card"><div class="empty">No daily reports yet. The bot writes one after each session\'s review.</div></div>';
+}
+
+async function loadStrategies(){
+  const ss = await api('/api/strategies');
+  $('#stratlist').innerHTML = ss.map(s=>{
+    const st = s.stats;
+    const stats = st ? `<div class="kv" style="margin-top:8px"><div><div class="k">Trades</div><div class="v sm">${st.trades}</div></div><div><div class="k">Win</div><div class="v sm">${Math.round(st.win_rate*100)}%</div></div><div><div class="k">Exp</div><div class="v sm ${cls(st.expectancy_r)}">${(st.expectancy_r>=0?'+':'')+fmt(st.expectancy_r)}R</div></div><div><div class="k">P&amp;L (all)</div><div class="v sm ${cls(st.pnl)}">${money(st.pnl)}</div></div><div><div class="k">PF</div><div class="v sm">${st.profit_factor==null?'—':(st.profit_factor>99?'∞':fmt(st.profit_factor))}</div></div><div><div class="k">Max DD</div><div class="v sm">${fmt(st.max_dd_r)}R</div></div></div>` : '<p>No closed trades yet.</p>';
+    const lr = s.live_readiness; const lrTxt = (lr ? (lr.ready ? '<span class="pos">live bar met</span>' : 'live bar: '+lr.checks.filter(c=>!c.ok).map(c=>c.name+' ('+c.value+')').join(' · ')) : '') + (s.earned && (s.book==='paper'||s.book==='live') ? `<br>size ×${s.earned.mult.toFixed(2)} (${s.earned.name})${s.earned.guard?' · stepped down: '+s.earned.guard:''} · ${s.earned.next}` : '');
+    const act = (s.status==='suspended'||s.status==='research') ? `<button class="btn ok" onclick="setStatus('${s.name}','paper')">Promote to paper</button>` : (s.status==='retired' ? '' : `<button class="btn warn" onclick="setStatus('${s.name}','suspended')">Suspend</button>`);
+    const v = s.variant; let vTxt = '';
+    if(v && v.evidence && v.evidence.pooled){ const p = v.evidence.pooled; const f = x => (x.exp>=0?'+':'')+fmt(x.exp,3)+'R n'+x.n;
+      vTxt = `<p class="mono" style="margin-top:6px">tuned from ${v.base} · ${(v.created_at||'').slice(0,10)}<br>time-split: train ${f(p.train)} · validate ${f(p.val)} · test ${f(p.test)} pf ${fmt(p.test.pf)}</p>`; }
+    return `<div class="card" style="background:var(--bg3)"><h3>${s.name}<span class="chip ${s.status}">${s.label||s.status} · ${s.book}</span></h3><p>${s.description}</p><p class="mono">mode ${s.mode} · ${s.symbols.join(', ')}</p>${vTxt}${stats}<p class="ago" style="margin-top:6px">${lrTxt}</p><div class="actions">${act}${s.status==='retired'?'':`<button class="btn" onclick="setStatus('${s.name}','research')">To research</button>`}</div></div>`;
+  }).join('');
+}
+async function ladderReset(){
+  const confirm = await ask('Record an account reset', 'The difference between the new balance and the old baseline is written to the cash ledger. Baselines move; every trade and every statistic stays. Type reset to continue.');
+  if(confirm===null) return;
+  const note = await ask('Why?', 'e.g. paper account reset to $1,000'); if(note===null) return;
+  const r = await api('/api/settings/ladder_reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm,note})});
+  if(!r.ok) toast('Error: '+r.error); else toast('Reset noted: recorded as a cash movement on the bot\'s next pass');
+}
+async function loadCash(){
+  try {
+    const d = await api('/api/ledger'); const fl = d.flows || [];
+    const KIND = {deposit:'Deposit', withdrawal:'Withdrawal', reset:'Account reset', adjust:'Adjustment'};
+    const SRC = {broker:'from the broker', dashboard:'entered by you', reset:'reset you recorded', detected:'detected by the bot'};
+    $('#cashcard').innerHTML = `<h3>Cash movements <span class="ago">net ${money(d.net)}</span></h3>
+      <p>Deposits, withdrawals and account resets move the starting point the risk math uses. They never touch the trade history, so every statistic keeps counting every trade. Movements at the broker are picked up every hour${d.synced_at?` (last check ${when(d.synced_at)})`:''}.</p>
+      ${fl.length ? '<table><tr><th>When</th><th>What</th><th>Amount</th><th>Source</th></tr>' + fl.slice(0,20).map(f=>`<tr><td>${when(f.ts)}</td><td>${KIND[f.kind]||f.kind}${f.note?'<br><span class="ago">'+f.note.replace(/^dashboard: /,'')+'</span>':''}</td><td class="${cls(f.amount)}">${money(f.amount)}</td><td>${SRC[f.source]||f.source}</td></tr>`).join('') + '</table>' : '<div class="empty">No cash movements recorded yet.</div>'}
+      <div class="actions"><button class="btn" onclick="recordCash('deposit')">Record a deposit</button><button class="btn" onclick="recordCash('withdrawal')">Record a withdrawal</button></div>`;
+  } catch(e) { $('#cashcard').innerHTML = '<h3>Cash movements</h3><div class="empty">Could not load: '+e.message+'</div>'; }
+}
+async function recordCash(kind){
+  const amount = await ask(kind==='deposit' ? 'Deposit amount' : 'Withdrawal amount', 'Dollars, numbers only. This moves the baseline; trades are untouched.');
+  if(amount===null || !amount) return;
+  const note = await ask('Note (optional)', 'e.g. monthly withdrawal'); if(note===null) return;
+  const r = await api('/api/ledger/record',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount, kind, note})});
+  if(!r.ok) toast('Error: '+r.error); else { toast((kind==='deposit'?'Deposit':'Withdrawal')+' recorded'); loadCash(); }
+}
+async function loadSettings(){
+  $('#s_api').textContent = LS.api || '(this server)';
+  loadCash();
+  try {
+    const d = await api('/api/data'); const j = d.journal; const c = j.counts || {};
+    const kb = Math.round((j.size_bytes||0)/1024);
+    $('#datacard').innerHTML = `<h3>Your data <span class="chip ${j.ok?'live':'suspended'}">${j.ok?'healthy':'check failed'}</span></h3>
+      <p>Everything the bot has seen since launch lives in one journal file on the server: every trade, every signal it passed on, every daily report, every replay and lesson. Nothing is deleted when the account resets.</p>
+      <div class="kv" style="margin-top:8px"><div><div class="k">Trades on record</div><div class="v sm">${c.trades??'—'}</div></div><div><div class="k">Signals passed on</div><div class="v sm">${c.rejections??'—'}</div></div><div><div class="k">Daily reports</div><div class="v sm">${c.daily_reports??'—'}</div></div><div><div class="k">Trades replayed</div><div class="v sm">${c.trade_reviews??'—'}</div></div><div><div class="k">Journal size</div><div class="v sm">${kb} KB</div></div><div><div class="k">First trade</div><div class="v sm">${j.first_trade_at?whenDay(j.first_trade_at):'—'}</div></div></div>
+      <p style="margin-top:10px">Nightly, a verified copy is pulled off the server (compressed, with a rolling history) and refreshes one small folder of spreadsheet exports. Last copy pulled: <b>${d.last_backup_pulled_at?when(d.last_backup_pulled_at):'never yet'}</b>${d.last_backup_detail&&d.last_backup_detail.trades!=null?` (${d.last_backup_detail.trades} trades, integrity ${d.last_backup_detail.integrity}${d.last_backup_detail.disk_backups_bytes!=null?`, ${Math.round((d.last_backup_detail.disk_backups_bytes+(d.last_backup_detail.disk_exports_bytes||0))/1048576)} MB off the server`:''})`:''}.</p>
+      <div class="actions"><button class="btn ok" onclick="downloadBackup()">Download the full journal now</button></div>`;
+  } catch(e) { $('#datacard').innerHTML = '<h3>Your data</h3><div class="empty">Could not load: '+e.message+'</div>'; }
+}
+async function downloadBackup(){
+  try {
+    toast('Preparing the backup…');
+    const r = await fetch(LS.api + '/api/backup', {headers: LS.tok ? {Authorization: 'Bearer ' + LS.tok} : {}});
+    if(!r.ok) throw new Error('backup ' + r.status);
+    const b = await r.blob(); const u = URL.createObjectURL(b); const a = document.createElement('a');
+    a.href = u; a.download = 'apexpm-journal-' + new Date().toISOString().slice(0,10) + '.db'; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u), 10000); toast('Backup downloaded (' + Math.round(b.size/1024) + ' KB)');
+  } catch(e) { toast('Backup failed: ' + e.message); }
+}
+async function setStatus(name, status){
+  let confirm = '';
+  if(status==='paper'){
+    confirm = await ask('Promote '+name+' to PAPER', 'Real paper orders from the next scan. Type the word promote to continue.');
+    if(confirm===null) return;
+    if((confirm||'').trim().toLowerCase()!=='promote'){ toast('Not promoted: type promote to confirm'); return; }
+  }
+  const note = await ask((status==='paper'?'Reason for promoting ':status==='suspended'?'Quarantine ':'Move to lab: ')+name, status==='paper'?'Required: the evidence (backtest result, review) behind this promotion.':status==='suspended'?'Shadow book: journaled, no orders.':'Shadow book for tuning.');
+  if(note===null) return;
+  const r = await api('/api/strategy/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,status,note:note||'',confirm})});
+  if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadStrategies().catch(showErr); loadHome().catch(()=>{});
+}
+
+async function loadDecisions(){
+  await loadStrategies();
+  const d = await api('/api/decisions');
+  $('#decbadge').textContent = d.pending.length ? '('+d.pending.length+')' : '';
+  $('#decpending').innerHTML = d.pending.length ? d.pending.map(x=>`<div class="card" style="background:var(--bg3)"><h3>${x.title}<span class="ago">${(x.ts||'').slice(0,10)}</span></h3>
+    <p>${x.detail||''}</p><p style="margin-top:6px;color:#fff">Proposal: ${x.proposal||'—'}</p>
+    <div class="actions"><button class="btn ok" onclick="resolveDecision(${x.id},'approved')">Approve</button><button class="btn" onclick="resolveDecision(${x.id},'dismissed')">Dismiss</button></div></div>`).join('')
+    : '<div class="empty">Nothing waiting. The nightly review quarantines losers on its own and only brings you borderline calls.</div>';
+  $('#decresolved').innerHTML = d.resolved.length ? '<table><tr><th>When</th><th>Title</th><th>Status</th><th>Note</th></tr>' + d.resolved.map(x=>`<tr><td>${(x.resolved_at||'').slice(0,10)}</td><td style="white-space:normal">${x.title}</td><td>${x.status}</td><td style="white-space:normal">${x.note||''}</td></tr>`).join('') + '</table>' : '<div class="empty">None yet.</div>';
+}
+async function resolveDecision(id, status){
+  const note = await ask((status==='approved'?'Approve':'Dismiss')+' decision #'+id, ''); if(note===null) return;
+  const r = await api('/api/decisions/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status,note})});
+  if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadDecisions().catch(showErr);
+}
+const loaders = {overview: loadHome, positions: loadPositions, activity: loadActivity, analytics: loadAnalytics, reports: loadReports, decisions: loadDecisions, settings: loadSettings};
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  document.querySelectorAll('section').forEach(s=>s.classList.remove('active')); $('#'+b.dataset.tab).classList.add('active');
+  loaders[b.dataset.tab]().catch(showErr);
+});
+async function loadAll(){ await loadHome(); }
+(async function boot(){
+  const q = new URLSearchParams(location.search);
+  if (q.get('token')) { LS.tok = q.get('token'); history.replaceState({}, '', location.pathname); }
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{}); }
+  // A statically hosted front-end has no API of its own: ask for the API address first.
+  if (!LS.api) {
+    let ok = false;
+    try { const r = await fetch('/api/health', {cache:'no-store'}); ok = r.ok && (await r.json()).ok === true; } catch(e) {}
+    if (!ok) { showLogin(); return; }
+  }
+  loadAll().catch(showErr);
+  setInterval(()=>{ const on=document.querySelector('#tabs button.on').dataset.tab; loaders[on]().catch(()=>{}); }, 30000);
+})();
+</script>
+</body>
+</html>
