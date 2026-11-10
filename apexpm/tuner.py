@@ -39,6 +39,37 @@ MIN_TRADES_SYMBOL = 5                                  # per symbol, for the all
 MIN_TEST_PF = 1.10
 IMPROVE_MARGIN_R = 0.02
 
+# Overnight desk bases have their own time-split rule (research/overnight/thesis.md):
+#   overnight      pre-market / after-hours recipes on SIP history since 2021: the same calendar split, but a
+#                  smaller trade floor (event-driven, one trade per window) and a higher test PF floor,
+#                  because thin-session costs are the largest unknown
+#   overnight_short  any recipe that enters in the 20:00-04:00 session: BOATS history only starts 2024-09-16,
+#                  so the split is train 2024-09-16..2025-03-31, validate 2025-04..09, test 2025-10 on
+SPLIT_RULES = {
+    "classic": {"splits": (("train", "0000-01-01", "2023-12-31"), ("val", "2024-01-01", "2024-12-31"), ("test", "2025-01-01", "9999-12-31")),
+                "min_trades": MIN_TRADES, "min_test_pf": MIN_TEST_PF, "min_trades_symbol": MIN_TRADES_SYMBOL},
+    "overnight": {"splits": (("train", "0000-01-01", "2023-12-31"), ("val", "2024-01-01", "2024-12-31"), ("test", "2025-01-01", "9999-12-31")),
+                  "min_trades": {"train": 40, "val": 12, "test": 12}, "min_test_pf": 1.15, "min_trades_symbol": 4},
+    "overnight_short": {"splits": (("train", "2024-09-16", "2025-03-31"), ("val", "2025-04-01", "2025-09-30"), ("test", "2025-10-01", "9999-12-31")),
+                        "min_trades": {"train": 20, "val": 10, "test": 10}, "min_test_pf": 1.15, "min_trades_symbol": 3},
+}
+
+
+def is_overnight(base: str) -> bool:
+    from .strategies import spaces
+    return base in getattr(spaces, "OVERNIGHT_BASES", {})
+
+
+def rule_name(base: str, overrides: Optional[dict] = None) -> str:
+    if not is_overnight(base):
+        return "classic"
+    sess = (overrides or {}).get("ext_sessions_override")
+    return "overnight_short" if sess and "overnight" in sess else "overnight"
+
+
+def rule_for(base: str, overrides: Optional[dict] = None) -> dict:
+    return SPLIT_RULES[rule_name(base, overrides)]
+
 
 def combo_key(base: str, overrides: dict) -> str:
     s = json.dumps({"base": base, "o": overrides}, sort_keys=True, default=str)
@@ -112,9 +143,38 @@ def _split_of(ts) -> str:
     return "test"
 
 
+_EXT: Dict[str, pd.DataFrame] = {}
+
+
+def load_ext_history(sym: str) -> pd.DataFrame:
+    """Extended-hours history (scripts/fetch_ext_history.py), never the regular-hours files."""
+    if sym not in _EXT:
+        from .overnight_backtest import load_ext
+        _EXT[sym] = load_ext(f"data/history/{sym}_5m_ext_alpaca.csv")
+    return _EXT[sym]
+
+
+def evaluate_overnight_task(task: dict) -> dict:
+    from .overnight_backtest import OvernightBacktester, split_trades
+    from .strategies.spaces import BASES
+    base, overrides, sym = task["base"], task["overrides"], task["symbol"]
+    cfg = Config()
+    ov = {k: (tuple(v) if isinstance(v, list) else v) for k, v in overrides.items()}
+    strat = BASES[base](name=f"{base}_tune", overrides=ov)
+    bars = load_ext_history(sym)
+    rule = rule_name(base, overrides)
+    first = SPLIT_RULES[rule]["splits"][0][1]
+    res = OvernightBacktester(cfg, strat, sym).run(bars, start=None if first.startswith("0000") else first)
+    rs = split_trades(res.trades, SPLIT_RULES[rule]["splits"])
+    return {"key": combo_key(base, overrides), "base": base, "overrides": overrides, "symbol": sym, "rule": rule,
+            "rs": rs, "data_end": str(bars.index.max().date()), "ran_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+
+
 def evaluate_task(task: dict) -> dict:
     """One (base, overrides, symbol) backtest. Returns R values per split (compact)."""
     from .strategies.spaces import BASES
+    if is_overnight(task["base"]):
+        return evaluate_overnight_task(task)
     base, overrides, sym = task["base"], task["overrides"], task["symbol"]
     cfg = Config()
     cfg.bt_fill_model = "next_open"
@@ -190,19 +250,21 @@ def assess(base: str, key: str, store: Dict[Tuple[str, str], dict], symbols: Lis
             pooled_rs[sp] += r["rs"].get(sp, [])
     pooled = {sp: stats(v) for sp, v in pooled_rs.items()}
     c = Candidate(base=base, key=key, overrides=recs[0]["overrides"], pooled=pooled, per_symbol=per_symbol)
+    rule = rule_for(base, recs[0]["overrides"])
     reasons = []
-    for sp, need in MIN_TRADES.items():
+    for sp, need in rule["min_trades"].items():
         if pooled[sp]["n"] < need:
             reasons.append(f"{sp}: {pooled[sp]['n']} trades < {need}")
         elif pooled[sp]["exp"] <= 0:
             reasons.append(f"{sp}: expectancy {pooled[sp]['exp']:+.3f}R")
-    if pooled["test"]["pf"] < MIN_TEST_PF:
-        reasons.append(f"test pf {pooled['test']['pf']:.2f} < {MIN_TEST_PF}")
+    if pooled["test"]["pf"] < rule["min_test_pf"]:
+        reasons.append(f"test pf {pooled['test']['pf']:.2f} < {rule['min_test_pf']}")
     c.reasons = reasons
     c.passes = not reasons
     c.score = min(pooled["val"]["exp"], pooled["test"]["exp"])
+    mts = rule["min_trades_symbol"]
     c.symbols_ok = [s for s, st in per_symbol.items()
-                    if st["val"]["n"] >= MIN_TRADES_SYMBOL and st["test"]["n"] >= MIN_TRADES_SYMBOL
+                    if st["val"]["n"] >= mts and st["test"]["n"] >= mts
                     and st["val"]["exp"] > 0 and st["test"]["exp"] > 0]
     return c
 
@@ -233,9 +295,11 @@ def select(base: str, store: Dict[Tuple[str, str], dict], symbols: List[str],
 
 
 def to_spec(c: Candidate, note: str = "") -> dict:
+    rule = rule_for(c.base, c.overrides)
     return {"base": c.base, "overrides": c.overrides, "symbols": c.symbols_ok,
             "evidence": {"pooled": c.pooled, "per_symbol": c.per_symbol, "score": c.score,
-                         "rule": f"all splits > 0, pooled n >= {MIN_TRADES}, test pf >= {MIN_TEST_PF}, beats incumbent by {IMPROVE_MARGIN_R}R"},
+                         "rule": f"{rule_name(c.base, c.overrides)}: all splits > 0, pooled n >= {rule['min_trades']}, "
+                                 f"test pf >= {rule['min_test_pf']}, beats incumbent by {IMPROVE_MARGIN_R}R"},
             "note": note or "tuner time-split"}
 
 
@@ -283,13 +347,26 @@ def run(bases: List[str], symbols: List[str], n_per_base: int, seed: int, worker
 
 
 def report_md(results: Dict[str, dict], symbols: List[str], when: str) -> str:
+    if results and all(is_overnight(b) for b in results):
+        md = [f"# Tuning run {when}", "", f"Symbols: {', '.join(symbols)}. Overnight desk bases: limit-only fills on extended-hours bars "
+              "(apexpm/overnight_backtest.py), watched stops and time exits pay the measured spread. Rules per base below "
+              f"(tuner.SPLIT_RULES); a challenger must beat the incumbent on validate AND test by {IMPROVE_MARGIN_R}R.", ""]
+        return _report_body(md, results)
     md = [f"# Tuning run {when}", "", f"Symbols: {', '.join(symbols)}. Fills: next_open with slippage and commission. "
           f"Splits: train <= 2023, validate 2024, test 2025 on. Pass rule: every pooled split positive with "
           f"n >= {MIN_TRADES}, test PF >= {MIN_TEST_PF}; a challenger must beat the incumbent on validate AND test by {IMPROVE_MARGIN_R}R.", ""]
+    return _report_body(md, results)
+
+
+def _report_body(md, results) -> str:
     for base, r in results.items():
         inc, best, cands = r["incumbent"], r["challenger"], r["candidates"]
         md.append(f"## {base}  ({len(cands)} combos assessed)")
         md.append("")
+        if is_overnight(base):
+            rl = rule_for(base)
+            md.append(f"- overnight desk rule: limit-only fills on extended-hours bars; pooled n >= {rl['min_trades']}, test PF >= {rl['min_test_pf']} "
+                      f"(combos entering 20:00-04:00 use the short-history split from 2024-09-16)")
         if inc:
             p = inc.pooled
             md.append(f"- incumbent: train {p['train']['exp']:+.3f}R n{p['train']['n']} | val {p['val']['exp']:+.3f}R n{p['val']['n']} | "

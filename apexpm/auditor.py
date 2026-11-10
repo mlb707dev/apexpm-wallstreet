@@ -48,7 +48,8 @@ def strategy_audit(journal, registry, name: str, since: str, expected_r=None) ->
            "pf": (round(pf, 2) if pf not in (None, float("inf")) else pf), "win": round(win, 2) if win is not None else None,
            "last10_exp_r": round(sum(last10) / len(last10), 3) if last10 else None,
            "overhold_share": round(overhold / n, 2) if n else None, "stop_share": round(stopped / n, 2) if n else None,
-           "expected_r": expected_r, "drift_r": None, "flags": []}
+           "expected_r": expected_r, "drift_r": None, "flags": [],
+           "tags": list(getattr(registry._entries[name].strategy, "tags", ()) or ()) if name in getattr(registry, "_entries", {}) else []}
     if expected_r is not None and exp is not None and n >= DRIFT_MIN_N:
         out["drift_r"] = round(exp - float(expected_r), 3)
         if out["drift_r"] < -0.15:
@@ -108,8 +109,18 @@ def audit(journal, registry, cfg, days: Optional[int] = None) -> Dict[str, Any]:
                       f"last 10 {a['last10_exp_r']:+.2f}R. Owner rule: only no-edge strategies move to shadow, and only by decision.")
             did = registry.propose("auditor", name, title, detail, "set status research (shadow) until a tuned variant earns its way back")
             proposals.append({"id": did, "title": title})
+    # 24/5 strategies that have earned a look: one activation decision each for the owner (never promoted here)
+    ready = []
+    try:
+        from .overnight import propose_ready, readiness, ACTIVATE_TITLE
+        ready = readiness(journal, registry)
+        for did, r in zip(propose_ready(journal, registry), ready):
+            proposals.append({"id": did, "title": ACTIVATE_TITLE.format(name=r["name"])})
+    except Exception:  # noqa: BLE001
+        pass
     gb = day_giveback(journal, since)
-    out = {"since": since or None, "strategies": strategies, "giveback": gb, "proposals": proposals}
+    out = {"since": since or None, "strategies": strategies, "giveback": gb, "proposals": proposals,
+           "ready_24_5": [{"name": r["name"], "symbols": r["symbols"], "kind": r["kind"]} for r in ready]}
     try:
         with journal.tx() as c:
             c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (datetime('now'), 'auditor', 'audit', ?)",

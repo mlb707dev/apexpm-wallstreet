@@ -130,6 +130,31 @@ class Broker:
         log.info("submitted limit %s %s x%s @ %.2f id=%s", side, symbol, qty, limit_price, o.id)
         return str(o.id)
 
+    def submit_limit_ext(self, symbol: str, qty: float, side: str, limit_price: float) -> Optional[str]:
+        """Extended-hours limit order (overnight desk). Alpaca accepts only limit orders with TIF day/gtc and
+        extended_hours=True outside 09:30-16:00 (pre-market, after-hours and the 20:00-04:00 overnight
+        session); a DAY order placed overnight carries into that trade date's sessions and is cancelled at
+        20:00 ET. Whole shares only here: fractional extended-hours orders need the asset's
+        fractional_eh_enabled flag, so the desk sizes in whole shares and never sends a fraction."""
+        if float(qty) != int(qty) or qty <= 0:
+            raise ValueError(f"extended-hours orders are whole shares only (got {qty})")
+        if self._refuse(f"ext limit {side} {symbol} x{qty} @ {limit_price:.2f}"):
+            return None
+        from alpaca.trading.enums import OrderSide, TimeInForce
+        from alpaca.trading.requests import LimitOrderRequest
+        req = LimitOrderRequest(symbol=symbol, qty=int(qty), side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
+                                time_in_force=TimeInForce.DAY, limit_price=round(limit_price, 2), extended_hours=True)
+        o = self._client.submit_order(req)
+        log.info("submitted ext limit %s %s x%s @ %.2f id=%s", side, symbol, qty, limit_price, o.id)
+        return str(o.id)
+
+    def asset_attributes(self, symbol: str) -> List[str]:
+        """Asset.attributes (e.g. overnight_tradable, overnight_halted, fractional_eh_enabled); [] offline."""
+        if not self._client:
+            return []
+        a = self._client.get_asset(symbol)
+        return list(getattr(a, "attributes", None) or [])
+
     def submit_market(self, symbol: str, qty: float, side: str) -> Optional[str]:
         if self._refuse(f"market {side} {symbol} x{qty}"):
             return None

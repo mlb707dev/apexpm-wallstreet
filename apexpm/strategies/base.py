@@ -86,6 +86,7 @@ class Strategy:
     name = "base"
     description = ""
     overrides: Dict[str, object] = {}
+    tags: tuple = ()                  # display tags shown wherever the strategy appears, e.g. ("24/5",)
 
     def __init__(self, name: Optional[str] = None, overrides: Optional[Dict[str, object]] = None,
                  description: Optional[str] = None):

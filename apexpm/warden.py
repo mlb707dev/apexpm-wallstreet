@@ -211,6 +211,27 @@ def duties(journal, registry, cfg, bot=None) -> List[Dict[str, Any]]:
         ts = _event_within(journal, "backup", "ran", 36)
         return bool(ts), (f"last backup pulled {ts}" if ts else "no backup pulled in 36 hours (the nightly job did not run or could not reach the bot)")
     out.append({"name": "journal backed up", "check": backed_up, "repair": None})
+
+    def overnight_desk():
+        """24/5 desk: off by default (fine); when on, it must have ticked recently while an extended session is open,
+        and any 24/5 strategy that passed its rule must have an activation decision waiting for the owner."""
+        from . import ext_sessions as xs
+        from .overnight import readiness, propose_ready
+        ready = readiness(journal, registry)
+        if ready:
+            propose_ready(journal, registry)
+        tail = f"; {len(ready)} 24/5 strateg{'y' if len(ready) == 1 else 'ies'} ready for review" if ready else ""
+        if not getattr(cfg, "overnight_enabled", False):
+            return True, "overnight desk off (OVERNIGHT_ENABLED=false); 24/5 strategies stay in the lab" + tail
+        sess = xs.session_at(now_et)
+        if sess not in xs.EXT_SESSIONS:
+            return True, f"overnight desk on; {sess} session" + tail
+        ts = journal.get_state("overnight_tick")
+        if not ts:
+            return False, "overnight desk is on but has never ticked"
+        age = (_now() - datetime.fromisoformat(ts)).total_seconds() / 60
+        return age <= 30, (f"overnight desk ticked {age:.0f} min ago ({sess})" if age <= 30 else f"overnight desk silent for {age:.0f} min during {sess}") + tail
+    out.append({"name": "overnight desk (24/5)", "check": overnight_desk, "repair": None})
     return out
 
 

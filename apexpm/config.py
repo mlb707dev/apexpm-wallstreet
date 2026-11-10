@@ -115,6 +115,21 @@ class Config:
     eh_first_minutes: int = field(default_factory=lambda: _i("EH_FIRST_MINUTES", 210))
     eh_skip_lunch: bool = field(default_factory=lambda: _b("EH_SKIP_LUNCH", True))
 
+    # Overnight desk (extended + overnight sessions, apexpm/overnight.py). OFF by default; its strategies sit in
+    # the lab (research) until the owner promotes one by typed decision. Limit orders only, extended_hours=True.
+    overnight_enabled: bool = field(default_factory=lambda: _b("OVERNIGHT_ENABLED", False))
+    overnight_symbols: List[str] = field(default_factory=lambda: _list("OVERNIGHT_SYMBOLS", ["SPY", "QQQ", "IWM", "NVDA", "TSLA", "AAPL", "AMD", "AMZN", "META", "MSFT"]))
+    overnight_feed: str = field(default_factory=lambda: _s("OVERNIGHT_FEED", "iex"))          # pre/after-hours bars: iex (free, thin) | sip (paid)
+    overnight_max_positions: int = field(default_factory=lambda: _i("OVERNIGHT_MAX_POSITIONS", 1))
+    overnight_max_notional_pct: float = field(default_factory=lambda: _f("OVERNIGHT_MAX_NOTIONAL_PCT", 0.5))
+    overnight_risk_pct: float = field(default_factory=lambda: _f("OVERNIGHT_RISK_PCT", 0.02))
+    overnight_entry_good_for_min: int = field(default_factory=lambda: _i("OVERNIGHT_ENTRY_GOOD_FOR_MIN", 20))
+    overnight_exit_limit_bps: float = field(default_factory=lambda: _f("OVERNIGHT_EXIT_LIMIT_BPS", 30.0))
+    overnight_reprice_sec: int = field(default_factory=lambda: _i("OVERNIGHT_REPRICE_SEC", 60))
+    overnight_max_spread_bps: float = field(default_factory=lambda: _f("OVERNIGHT_MAX_SPREAD_BPS", 40.0))
+    # entries in pre/after-hours on the thin IEX tape are refused unless the owner opts in (backtests are on SIP)
+    overnight_allow_iex: bool = field(default_factory=lambda: _b("OVERNIGHT_ALLOW_IEX", False))
+
     # Governance / learning loop
     review_window_trades: int = field(default_factory=lambda: _i("REVIEW_WINDOW_TRADES", 30))
     review_min_trades: int = field(default_factory=lambda: _i("REVIEW_MIN_TRADES", 20))

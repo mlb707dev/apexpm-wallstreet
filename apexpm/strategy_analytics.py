@@ -190,6 +190,7 @@ def tiers(journal, registry, days: Optional[int] = None) -> Dict[str, Any]:
             e = registry._entries[name]
             items.append({"name": name, "status": registry.status(name), "label": registry.label(name), "book": book,
                           "description": e.strategy.description, "symbols": list(e.symbols), "mode": mode,
+                          "tags": list(getattr(e.strategy, "tags", ()) or ()),
                           "open": open_by.get(name, 0), "n_by_mode": by_mode, "expected_r": expected.get(name),
                           "drift_r": (round(s["exp_r"] - expected[name], 3) if (name in expected and s["exp_r"] is not None) else None),
                           "lessons": ({"summary": lessons[name].get("summary"), "recommendations": lessons[name].get("recommendations", []),

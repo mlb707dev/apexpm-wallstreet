@@ -30,6 +30,7 @@ from .db import Journal, et_date
 from .registry import Registry
 from .strategies import ExampleBreakout
 from . import variants as variantsmod
+from .ext_sessions import ET as _ET, session_at as _session_at
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dashboard")
 # The full app lives outside the statically hosted folder and is served only behind the token: the
@@ -38,6 +39,22 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 APP_HTML = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "webapp", "app.html")
 STATIC_FILES = {"/manifest.json": "manifest.json", "/sw.js": "sw.js"}
 
+
+
+def trade_session(iso: Optional[str], symbol: Optional[str] = None) -> Optional[str]:
+    """Which market session a journal timestamp fell in, for the activity feed: rth, pre, ah, overnight,
+    closed, or crypto (trades around the clock). None when the time is missing or unreadable."""
+    if "/" in (symbol or ""):
+        return "crypto"
+    if not iso:
+        return None
+    try:
+        t = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return _session_at(t.astimezone(_ET))
 
 def _rows(rows) -> list:
     return [dict(r) for r in rows]
@@ -323,6 +340,9 @@ class Api:
                 n = {}
             for k in ("greeks_entry", "greeks_exit", "vix_entry", "vix_exit"):
                 r[k] = n.get(k)
+            r["session"] = trade_session(r.get("opened_at"), r.get("symbol"))
+            r["exit_session"] = trade_session(r.get("closed_at"), r.get("symbol")) if r.get("closed_at") else None
+            r["desk"] = bool(n.get("ext")) if isinstance(n, dict) else False
         return rows
 
     def strategies(self) -> list:
@@ -336,6 +356,7 @@ class Api:
             out.append({"name": n, "description": e.strategy.description, "status": self.reg.status(n),
                         "book": self.reg.book(n), "label": self.reg.label(n),
                         "mode": self.reg.mode_for(n), "symbols": e.symbols, "stats": st.__dict__ if st else None,
+                        "tags": list(getattr(e.strategy, "tags", ()) or ()),
                         "earned": self._earned(n),
                         "live_readiness": self.reg.live_readiness(n),
                         "variant": {"base": v["base"], "overrides": v["overrides"], "evidence": v["evidence"], "created_at": v["created_at"]} if v else None})

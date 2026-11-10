@@ -89,3 +89,48 @@ class DataFeed:
             if (datetime.now(timezone.utc) - ts).total_seconds() > max_age_sec:
                 return None
         return price
+
+    # ---- extended hours (overnight desk) -------------------------------------------------
+    def ext_bars(self, symbol: str, minutes: int = 5, days: int = 30, feed: str = "iex",
+                 overnight_feed: str = "boats", start: Optional[datetime] = None, end: Optional[datetime] = None) -> pd.DataFrame:
+        """All-session bars for the overnight desk, tagged with a `session` column like the history files:
+        `feed` for pre/rth/after-hours and the BOATS feed for 20:00-04:00. On the free plan BOATS bars are
+        15 minutes delayed and the IEX tape is thin outside regular hours (research/overnight/thesis.md)."""
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+        from .ext_sessions import session_of_index
+        start = start or (datetime.now(timezone.utc) - timedelta(days=days))
+        parts = []
+        for fd, keep_overnight in ((feed, False), (overnight_feed, True)):
+            try:
+                req = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame(minutes, TimeFrameUnit.Minute), start=start, end=end, feed=fd,
+                                       adjustment="split")
+                b = self._client.get_stock_bars(req).df
+            except Exception:  # noqa: BLE001
+                continue
+            if b is None or b.empty:
+                continue
+            if isinstance(b.index, pd.MultiIndex):
+                b = b.xs(symbol, level="symbol")
+            b = b[["open", "high", "low", "close", "volume"]].copy()
+            b["session"] = session_of_index(b.index)
+            b = b[(b["session"] == "overnight") if keep_overnight else (b["session"] != "overnight")]
+            parts.append(b)
+        if not parts:
+            return pd.DataFrame(columns=["open", "high", "low", "close", "volume", "session"])
+        out = pd.concat(parts).sort_index()
+        return out[~out.index.duplicated(keep="first")]
+
+    def ext_quote(self, symbol: str, session: str, feed: str = "iex"):
+        """(bid, ask) for the desk's spread check and exit pricing; the overnight session uses Alpaca's
+        'overnight' latest-quote feed (indicative on the free plan). (None, None) when unavailable."""
+        from alpaca.data.requests import StockLatestQuoteRequest
+        fd = "overnight" if session == "overnight" else feed
+        try:
+            q = self._client.get_stock_latest_quote(StockLatestQuoteRequest(symbol_or_symbols=symbol, feed=fd)).get(symbol)
+        except Exception:  # noqa: BLE001
+            return None, None
+        if not q or not q.bid_price or not q.ask_price or q.ask_price < q.bid_price:
+            return None, None
+        return float(q.bid_price), float(q.ask_price)
+

@@ -41,6 +41,7 @@ from .stream import FastLayer
 from .news import NewsFeed
 from .options_exec import OptionsWrapper, size_contracts
 from .strategies import ExampleBreakout
+from .overnight import OvernightDesk, is_desk_strategy, trade_is_desk
 from . import variants
 from .strategies.base import MarketSnapshot, Signal
 from .webhook import WebhookServer
@@ -79,6 +80,7 @@ class Bot:
         if cfg.options_enabled:
             chain = (lambda u, a, b: self.obroker.chain(u, a, b)) if self.obroker.connected else (lambda u, a, b: [])
             self.registry.register(OptionsWrapper(ExampleBreakout(), chain, min_dte=cfg.opt_min_dte, max_dte=cfg.opt_max_dte), "research")
+        # extended-hours strategies (ext_sessions) register here and run on the overnight desk only
         self.webhook: Optional[WebhookServer] = None
         self.news = NewsFeed(cfg, self.journal) if cfg.news_enabled else None
         self.state: Optional[riskmod.RiskState] = None
@@ -90,6 +92,7 @@ class Bot:
         self._momentum: Dict[str, bool] = {}
         self._exit_lock = threading.RLock()
         self.fast: Optional[FastLayer] = None
+        self.overnight = OvernightDesk(self)
         cal.ensure_table(self.journal)
 
     # ---- startup ----------------------------------------------------------
@@ -508,6 +511,8 @@ class Bot:
         observing = self.registry.observing(symbol) if not shadow_only else \
             [e.strategy for e in self.registry._entries.values() if not getattr(e.strategy, "inner", None)]
         for strat in active + observing:
+            if is_desk_strategy(strat):
+                continue                      # extended-hours recipes run on the overnight desk only
             observe_only = strat in observing
             why = strat.session_ok(snap, self.cfg)
             if why:
@@ -667,6 +672,8 @@ class Bot:
         now_et = now_utc.astimezone(ET)
         now_iso = now_utc.isoformat(timespec="seconds")
         for t in self.journal.pending_trades():
+            if trade_is_desk(t, self.registry):
+                continue                      # the overnight desk manages its own orders
             try:
                 st = self.broker.order_state(t["broker_order_id"]) if t["broker_order_id"] else None
                 if st is None:
@@ -702,6 +709,8 @@ class Bot:
         now_et = now_utc.astimezone(ET)
         today = now_et.date().isoformat()
         for t in self.journal.open_trades():
+            if trade_is_desk(t, self.registry):
+                continue                      # limit-only exits on the overnight desk
             try:
                 self._check_exit(t, now_utc, now_et, today)
             except Exception as exc:  # noqa: BLE001
@@ -719,7 +728,7 @@ class Bot:
             safe(self.journal.set_state, "stream_ticks", str(self.fast.ticks))
             safe(self.journal.set_state, "stream_last_tick", now_utc.isoformat(timespec="seconds"))
         for t in self.journal.open_trades():
-            if t["symbol"] != symbol or (t["asset"] or "stock") != "stock":
+            if t["symbol"] != symbol or (t["asset"] or "stock") != "stock" or trade_is_desk(t, self.registry):
                 continue   # option positions are marked on the slow loop (REST), never per tick
             try:
                 self._check_exit(t, now_utc, now_et, today, price=price)
@@ -733,8 +742,8 @@ class Bot:
                 return
             with self._exit_lock:
                 for t in self.journal.pending_trades():
-                    if t["broker_order_id"] != ev["order_id"]:
-                        continue
+                    if t["broker_order_id"] != ev["order_id"] or trade_is_desk(t, self.registry):
+                        continue          # the overnight desk owns its fills (it places the target on fill)
                     if ev["filled_qty"] > 0:
                         self.journal.mark_filled(t["id"], ev["filled_avg_price"] or t["entry"], ev["filled_qty"], ev["order_id"])
                         self.log.info("trade #%d filled via stream %.0f @ %s", t["id"], ev["filled_qty"], ev["filled_avg_price"])
@@ -960,6 +969,8 @@ class Bot:
                     safe(self.journal.set_state, "market", "open")
                 self._maybe_warden()
                 safe(self._maybe_ledger_sync)
+                if self.cfg.overnight_enabled:
+                    safe(self.overnight.tick)     # extended + overnight sessions (and its trades' exits in any session)
             except KeyboardInterrupt:
                 self.log.info("stopped by user")
                 return

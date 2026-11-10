@@ -31,6 +31,20 @@ header{position:sticky;top:0;z-index:5;background:rgba(11,16,32,.96);backdrop-fi
 .hbar h1{font-family:'Orbitron',sans-serif;font-weight:800;font-size:14px;letter-spacing:.14em;color:#fff}
 .hbar h1 span{color:var(--sky)}
 .chip{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.06em;padding:3px 7px;border-radius:6px;text-transform:uppercase}
+.chip.t245{background:#0f2f3a;color:#5eead4;border:1px solid #14b8a6}
+.chip.s-rth{background:#0b3a52;color:var(--sky)}.chip.s-pre{background:#3a2d00;color:var(--amber)}.chip.s-ah{background:#3d1d08;color:var(--orange)}.chip.s-overnight{background:#241a4d;color:#a5b4fc;border:1px solid #6366f1}.chip.s-crypto{background:#332b0c;color:var(--gold)}.chip.s-closed{background:#222;color:var(--dim)}
+.chip.st-open{background:#143d1f;color:var(--green)}.chip.st-pending{background:#3a2d00;color:var(--amber)}.chip.st-cancelled{background:#222;color:var(--dim)}.chip.st-closed{background:#1a2140;color:var(--text)}
+.feed .day{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:14px 0 6px;display:flex;justify-content:space-between}
+.feed .day:first-child{margin-top:4px}
+.tr{display:grid;grid-template-columns:auto 1fr auto;gap:4px 12px;align-items:start;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg3);margin-bottom:6px}
+.tr.live{border-left:3px solid var(--green)}.tr.wait{border-left:3px solid var(--amber)}.tr.gone{opacity:.55}
+.tr .tm{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--dim);display:flex;flex-direction:column;gap:5px;align-items:flex-start;min-width:84px}
+.tr .what{color:#fff;font-weight:600;font-size:14px}.tr .what .sym{font-family:'JetBrains Mono',monospace}
+.tr .sub{color:var(--dim);font-size:12px;margin-top:2px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.tr .px{font-size:12px;margin-top:4px;color:var(--text)}
+.tr .res{text-align:right;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.tr .res small{font-size:11px;font-weight:400;color:var(--dim)}
+@media (max-width:520px){.tr{grid-template-columns:1fr auto}.tr .tm{grid-column:1/-1;flex-direction:row;align-items:center}}
 .chip.paper{background:#0b3a52;color:var(--sky)}.chip.research{background:#2a1d4a;color:var(--purple)}.chip.suspended{background:#4a0f1f;color:var(--red)}.chip.retired{background:#222;color:var(--dim)}.chip.live{background:#143d1f;color:var(--green)}.chip.dry{background:#3a2d00;color:var(--amber)}.chip.off{background:#2a2a2a;color:var(--dim)}
 .heq{margin-left:auto;font-family:'JetBrains Mono',monospace;font-weight:700;color:#fff;font-size:15px}
 .tabs{max-width:1100px;margin:0 auto;display:flex;gap:2px;overflow-x:auto;padding:0 10px;scrollbar-width:none}
@@ -185,9 +199,9 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
 <section id="positions"><div class="card tbl" id="poslist"></div></section>
 
 <section id="activity">
-  <div class="card tbl"><h3>Trade journal</h3><div id="trades"></div></div>
-  <div class="card tbl"><h3>Rejections <span class="ago">7 days</span></h3><div id="rej"></div></div>
-  <div class="card tbl"><h3>Governance events</h3><div id="events"></div></div>
+  <div class="card"><h3>Trades <span class="ago" id="actsum"></span></h3><div id="actseg"></div><div id="trades" class="feed"></div></div>
+  <details class="card tbl"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Trades the bot passed on <span class="ago">7 days</span></summary><div id="rej" style="margin-top:10px"></div></details>
+  <details class="card tbl"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Strategy events <span class="ago">promotions, suspensions, reviews</span></summary><div id="events" style="margin-top:10px"></div></details>
 </section>
 
 <section id="analytics"><div class="card" id="master" style="position:relative"><h3>Master view</h3><div class="empty">Loading…</div></div><div id="ana"></div></section>
@@ -456,12 +470,52 @@ async function loadPositions(){
     : '<div class="empty">No open or pending positions.</div>');
 }
 
+const SESSION = {rth:['Regular hours','Regular trading hours, 9:30 AM-4:00 PM New York'], pre:['Pre-market','Pre-market, 4:00-9:30 AM New York, limit orders only'], ah:['After-hours','After-hours, 4:00-8:00 PM New York, limit orders only'], overnight:['☾ Overnight','Overnight session, 8:00 PM-4:00 AM New York (Blue Ocean ATS), limit orders only'], crypto:['Crypto 24/7','Crypto trades around the clock'], closed:['Market closed','Outside every session']};
+const sessChip = (k, small) => { if(!k) return ''; const [l,t] = SESSION[k]||[k,k]; return `<span class="chip s-${k}" title="${t}"${small?' style="font-size:9px;padding:2px 5px"':''}>${l}</span>`; };
+const isExt = t => t.desk || ['pre','ah','overnight'].includes(t.session);
+const STATUS_WORD = {open:'Open', pending:'Order working', closed:'Closed', cancelled:'Not filled'};
+const MODE_WORD = {PAPER:'paper', LIVE:'live money', DRY_RUN:'simulated', RESEARCH:'lab'};
+const etDay = iso => { const d = new Date(iso); return isNaN(d) ? String(iso||'').slice(0,10) : d.toLocaleDateString('en-US',{timeZone:'America/New_York',weekday:'short',month:'short',day:'numeric'}); };
+const etTime = iso => { const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleTimeString('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit'}); };
+let ACT_FILTER = 'all', ACT_ROWS = [];
+function tradeRow(t){
+  const live = t.status==='open', wait = t.status==='pending', gone = t.status==='cancelled';
+  const side = SIDE[t.direction] || t.direction;
+  const px = t.exit_price!=null ? `${fmt(t.entry)} → ${fmt(t.exit_price)}` : `in at ${fmt(t.entry)} · stop ${fmt(t.stop)} · target ${fmt(t.target)}`;
+  const out = t.closed_at ? ` · ${why(t.exit_reason)} ${etTime(t.closed_at)}${t.exit_session && t.exit_session!==t.session ? ' '+sessChip(t.exit_session,true) : ''}` : '';
+  const res = t.pnl!=null ? `<span class="${cls(t.pnl)}">${money(t.pnl)}</span><small class="${cls(t.rr_realized)}">${t.rr_realized==null?'':signed(t.rr_realized)+'× risk'}</small>`
+            : `<span class="chip st-${t.status}">${STATUS_WORD[t.status]||t.status}</span>`;
+  const mode = MODE_WORD[t.mode] || (t.mode||'').toLowerCase();
+  return `<div class="tr ${live?'live':wait?'wait':gone?'gone':''}">
+    <div class="tm">${etTime(t.opened_at)}${sessChip(t.session)}</div>
+    <div><div class="what">${side} ${t.qty} <span class="sym">${t.symbol}</span></div>
+      <div class="sub">${nice(t.setup)}${t.desk?'<span class="chip t245" title="Overnight desk: pre-market, after-hours and 8 PM-4 AM, limit orders only">24/5</span>':''}${mode?` · ${mode}`:''}${t.contract?` · ${t.contract}`:''}</div>
+      <div class="px">${px}${out}</div>${greeks(t)}</div>
+    <div class="res">${res}${t.pnl!=null?`<span class="chip st-closed" style="font-size:9px">${STATUS_WORD[t.status]||t.status}</span>`:''}</div></div>`;
+}
+function drawActivity(){
+  const ts = ACT_ROWS.slice().sort((x,y)=>String(y.opened_at||'').localeCompare(String(x.opened_at||'')) || y.id-x.id);
+  const n = {all: ts.length, rth: ts.filter(t=>!isExt(t)).length, ext: ts.filter(isExt).length};
+  $('#actseg').innerHTML = `<div class="seg">${[['all','All'],['rth','Regular hours'],['ext','Extended & overnight']].map(([k,l])=>`<button class="${ACT_FILTER===k?'on':''}" onclick="ACT_FILTER='${k}';drawActivity()">${l} (${n[k]})</button>`).join('')}</div>`;
+  const rows = ts.filter(t => ACT_FILTER==='all' || (ACT_FILTER==='ext') === isExt(t));
+  const now = rows.filter(t => t.status==='open' || t.status==='pending');
+  const rest = rows.filter(t => !(t.status==='open' || t.status==='pending'));
+  const live = ts.filter(t=>t.status==='open').length;
+  $('#actsum').textContent = live ? `${live} open now · times in New York` : 'times in New York';
+  let html = '';
+  if(now.length) html += `<div class="day"><span>Live now</span><span>${now.length}</span></div>` + now.map(tradeRow).join('');
+  let day = null, dayRows = [];
+  const flush = () => { if(!dayRows.length) return; const pnl = Math.round(dayRows.reduce((a,t)=>a+(t.pnl||0),0)*100)/100 || 0, closed = dayRows.filter(t=>t.pnl!=null).length;
+    html += `<div class="day"><span>${day}</span><span class="${cls(closed?pnl:null)}">${closed?money(pnl)+' · ':''}${dayRows.length} trade${dayRows.length===1?'':'s'}</span></div>` + dayRows.map(tradeRow).join(''); dayRows = []; };
+  for(const t of rest){ const d = etDay(t.opened_at); if(d!==day){ flush(); day = d; } dayRows.push(t); }
+  flush();
+  $('#trades').innerHTML = html || `<div class="empty">${ts.length ? 'No trades in this view.' : 'No trades journaled yet.'}</div>`;
+}
 async function loadActivity(){
-  const ts = await api('/api/trades');
-  $('#trades').innerHTML = ts.length ? '<table><tr><th>#</th><th>Opened</th><th>Setup</th><th>Dir</th><th>Qty</th><th>Entry</th><th>Stop</th><th>Target</th><th>Exit</th><th>Reason</th><th>R</th><th>P&L</th><th>Mode</th><th>Status</th></tr>' +
-    ts.map(t=>`<tr><td>${t.id}</td><td>${when(t.opened_at)}</td><td>${t.setup}${t.contract?'<br><span class="ago">'+t.contract+'</span>':''}${greeks(t)}</td><td>${t.direction}</td><td>${t.qty}</td><td>${fmt(t.entry)}</td><td>${fmt(t.stop)}</td><td>${fmt(t.target)}</td><td>${fmt(t.exit_price)}</td><td>${t.exit_reason||''}</td><td class="${cls(t.rr_realized)}">${t.rr_realized==null?'—':fmt(t.rr_realized)}</td><td class="${cls(t.pnl)}">${t.pnl==null?'—':money(t.pnl)}</td><td>${t.mode}</td><td>${t.status}</td></tr>`).join('') + '</table>' : '<div class="empty">No trades journaled yet.</div>';
+  ACT_ROWS = await api('/api/trades');
+  drawActivity();
   const rj = await api('/api/rejections');
-  $('#rej').innerHTML = rj.length ? '<table><tr><th>Date</th><th>Setup</th><th>Reason</th><th>N</th></tr>' + rj.map(r=>`<tr><td>${r.date}</td><td>${r.setup}</td><td>${r.reason}</td><td>${r.n}</td></tr>`).join('') + '</table>' : '<div class="empty">No rejections in the last 7 days.</div>';
+  $('#rej').innerHTML = rj.length ? '<table><tr><th>Date</th><th>Strategy</th><th>Why it passed</th><th>Times</th></tr>' + rj.map(r=>`<tr><td>${whenDay(r.date)}</td><td>${nice(r.setup)}</td><td>${r.reason.replace(/_/g,' ')}</td><td>${r.n}</td></tr>`).join('') + '</table>' : '<div class="empty">No rejections in the last 7 days.</div>';
   const ev = await api('/api/events');
   $('#events').innerHTML = ev.length ? '<table><tr><th>When</th><th>Who</th><th>Event</th><th>Detail</th></tr>' + ev.map(e=>`<tr><td>${when(e.ts)}</td><td>${e.name}</td><td>${e.event}</td><td style="white-space:normal">${e.detail||''}</td></tr>`).join('') + '</table>' : '<div class="empty">No events.</div>';
 }
@@ -502,6 +556,7 @@ function extreme(x, label){
   return `<div><div class="k">${label}</div><b class="${cls(u.pnl)}">${money(u.pnl)}</b> <span class="d">(${pct(u.pnl_pct)}) ${u.symbol}, ${whenDay(u.closed_at)}</span>` +
     (same ? '' : `<br><b class="${cls(p.pnl)}">${pct(p.pnl_pct)}</b> <span class="d">(${money(p.pnl)}) ${p.symbol}, ${whenDay(p.closed_at)} — biggest by percent</span>`) + '</div>';
 }
+const tagChips = s => (s.tags||[]).map(t=>`<span class="chip t245" title="${t==='24/5'?'Trades pre-market, after-hours and overnight (20:00-04:00 ET), limit orders only':t}">${t}</span>`).join('');
 function stratCard(s){
   const open = s.open ? `<span class="chip paper">${s.open} open now</span>` : '';
   const other = Object.entries(s.n_by_mode||{}).filter(([m])=>m!==s.mode).map(([m,n])=>`${n} earlier ${m==='PAPER'?'paper':m==='LIVE'?'live':'lab'} trade${n===1?'':'s'}`).join(', ');
@@ -516,7 +571,7 @@ function stratCard(s){
     <div class="ext">${extreme(s.biggest_win,'Biggest win')}${extreme(s.biggest_loss,'Biggest loss')}</div>${earnedTxt(s.earned)}${lessonsTxt(s.lessons)}
     <div class="trend">${spark(s.curve,'cum_pnl')}<div>${trendTxt(s)}${s.expected_r!=null && s.drift_r!=null ? `<br>Backtest promised ${signed(s.expected_r)}× risk per trade; running ${signed(s.drift_r)}× vs. that.` : ''}</div></div>`
     : `<p class="empty">No closed trades yet in this book${other?` (${other})`:''}.</p>`;
-  return `<div class="sc" onclick="openStrat('${s.name}')"><div class="nm"><span>${nice(s.name)}</span>${open}<span class="chip ${s.status}">${s.label}</span></div><div class="desc">${s.description} · ${s.symbols.join(', ')}</div>${body}<div class="more">See every trade ›</div></div>`;
+  return `<div class="sc" onclick="openStrat('${s.name}')"><div class="nm"><span>${nice(s.name)}</span>${tagChips(s)}${open}<span class="chip ${s.status}">${s.label}</span></div><div class="desc">${s.description} · ${s.symbols.join(', ')}</div>${body}<div class="more">See every trade ›</div></div>`;
 }
 const TIER_TEXT = {active:['Trading real money','Strategies that place orders on the live account.','Nothing is trading real money yet. Strategies earn their way here by passing the go-live bar on the practice account.'],
                    paper:['Practice account (paper)','Strategies placing orders on the paper account. Real prices, pretend money. This is what the go-live decision is judged on.','No strategy is in the practice book.'],
@@ -849,7 +904,7 @@ async function loadStrategies(){
     const v = s.variant; let vTxt = '';
     if(v && v.evidence && v.evidence.pooled){ const p = v.evidence.pooled; const f = x => (x.exp>=0?'+':'')+fmt(x.exp,3)+'R n'+x.n;
       vTxt = `<p class="mono" style="margin-top:6px">tuned from ${v.base} · ${(v.created_at||'').slice(0,10)}<br>time-split: train ${f(p.train)} · validate ${f(p.val)} · test ${f(p.test)} pf ${fmt(p.test.pf)}</p>`; }
-    return `<div class="card" style="background:var(--bg3)"><h3>${s.name}<span class="chip ${s.status}">${s.label||s.status} · ${s.book}</span></h3><p>${s.description}</p><p class="mono">mode ${s.mode} · ${s.symbols.join(', ')}</p>${vTxt}${stats}<p class="ago" style="margin-top:6px">${lrTxt}</p><div class="actions">${act}${s.status==='retired'?'':`<button class="btn" onclick="setStatus('${s.name}','research')">To research</button>`}</div></div>`;
+    return `<div class="card" style="background:var(--bg3)"><h3>${s.name}${tagChips(s)}<span class="chip ${s.status}">${s.label||s.status} · ${s.book}</span></h3><p>${s.description}</p><p class="mono">mode ${s.mode} · ${s.symbols.join(', ')}</p>${vTxt}${stats}<p class="ago" style="margin-top:6px">${lrTxt}</p><div class="actions">${act}${s.status==='retired'?'':`<button class="btn" onclick="setStatus('${s.name}','research')">To research</button>`}</div></div>`;
   }).join('');
 }
 async function ladderReset(){
@@ -917,7 +972,7 @@ async function loadDecisions(){
   await loadStrategies();
   const d = await api('/api/decisions');
   $('#decbadge').textContent = d.pending.length ? '('+d.pending.length+')' : '';
-  $('#decpending').innerHTML = d.pending.length ? d.pending.map(x=>`<div class="card" style="background:var(--bg3)"><h3>${x.title}<span class="ago">${(x.ts||'').slice(0,10)}</span></h3>
+  $('#decpending').innerHTML = d.pending.length ? d.pending.slice().sort((a,b)=>(/24\/5/.test(b.title)?1:0)-(/24\/5/.test(a.title)?1:0)).map(x=>`<div class="card" style="background:var(--bg3)"><h3>${/24\/5/.test(x.title)?'<span class="chip t245">24/5</span> ':''}${x.title}<span class="ago">${(x.ts||'').slice(0,10)}</span></h3>
     <p>${x.detail||''}</p><p style="margin-top:6px;color:#fff">Proposal: ${x.proposal||'—'}</p>
     <div class="actions"><button class="btn ok" onclick="resolveDecision(${x.id},'approved')">Approve</button><button class="btn" onclick="resolveDecision(${x.id},'dismissed')">Dismiss</button></div></div>`).join('')
     : '<div class="empty">Nothing waiting. The nightly review quarantines losers on its own and only brings you borderline calls.</div>';
