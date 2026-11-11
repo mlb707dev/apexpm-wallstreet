@@ -3,8 +3,11 @@
 Duties it patrols (each with the evidence it looks for, and the repair it is allowed to run):
 
   bot alive              heartbeat fresh                                   no repair (it IS the bot)
-  strategies scanned     on a session day, once the market has been open an hour, every registered
-                         strategy has at least one journaled look (a rejection or a trade) today
+  strategies scanned     on a session day: from 10:30 ET the scanner has journaled looks (a rejection or
+                         a trade) today; from 15:30 ET every regular-hours strategy has at least one.
+                         24/5 desk strategies are skipped (they scan in their own sessions; the overnight
+                         desk duty covers them). A strategy only journals when a setup gets close, so a
+                         quiet morning is normal (one strategy's first look on 2026-11-09 came at 2:39 PM).
                                                                             no repair; flagged
   postmortems            no closed trade older than an hour without a review   repair: replay them
   brain                  thought since the newest review                        repair: think
@@ -16,8 +19,9 @@ Duties it patrols (each with the evidence it looks for, and the repair it is all
   journal healthy        SQLite quick_check passes                               no repair; flagged
   journal backed up      a backup was pulled within 36 hours       no repair; flagged
 
-A duty that still fails after its repair becomes one pending decision for the owner per day, so a
-silent harness cannot stay silent. The warden never trades, never promotes, never changes settings.
+A duty that still fails after its repair raises one SYSTEM ALERT per duty per day (shown at the top of
+the Overview and in the daily review), so a silent harness cannot stay silent. Job failures are not owner
+decisions (owner, 2026-11-10): they never go to "Needs your call"; they are fixed in the build. The warden never trades, never promotes, never changes settings.
 """
 from __future__ import annotations
 
@@ -76,15 +80,23 @@ def duties(journal, registry, cfg, bot=None) -> List[Dict[str, Any]]:
     def scanned():
         if now_et.weekday() >= 5 or journal.get_state("market") != "open" or (now_et.hour, now_et.minute) < (10, 30):
             return True, "not a session hour"
-        missing = []
-        for n in registry.names():
-            if registry.status(n) == "retired":
-                continue
-            seen = journal.q1("SELECT 1 FROM rejections WHERE session_date=? AND setup=? LIMIT 1", (today, n)) or \
-                journal.q1("SELECT 1 FROM trades WHERE session_date=? AND setup=? LIMIT 1", (today, n))
-            if not seen:
-                missing.append(n)
-        return not missing, ("every strategy has looked at today's market" if not missing else "no look journaled today from: " + ", ".join(missing))
+        try:
+            from .overnight import is_desk_strategy
+        except ImportError:  # noqa: BLE001
+            is_desk_strategy = lambda s: False  # noqa: E731
+        entries = getattr(registry, "_entries", {})
+        rth_names = [n for n in registry.names() if registry.status(n) != "retired"
+                     and not (n in entries and is_desk_strategy(entries[n].strategy))]
+        looked = lambda n: bool(journal.q1("SELECT 1 FROM rejections WHERE session_date=? AND setup=? LIMIT 1", (today, n)) or  # noqa: E731
+                                journal.q1("SELECT 1 FROM trades WHERE session_date=? AND setup=? LIMIT 1", (today, n)))
+        seen = [n for n in rth_names if looked(n)]
+        if rth_names and not seen:
+            return False, "the scanner has journaled no look at all today"
+        if (now_et.hour, now_et.minute) < (15, 30):
+            return True, f"scanning: {len(seen)} of {len(rth_names)} regular-hours strategies have looked so far"
+        missing = [n for n in rth_names if n not in seen]
+        return not missing, ("every regular-hours strategy has looked at today's market" if not missing
+                             else "no look journaled all session from: " + ", ".join(missing))
     out.append({"name": "strategies scanned", "check": scanned, "repair": None})
 
     def postmortems():
@@ -262,9 +274,11 @@ def patrol(journal, registry, cfg, bot=None, repair: bool = True) -> Dict[str, A
         if not ok and repair:
             key = f"warden_alerted:{d['name']}:{today}"
             if not journal.get_state(key):
-                try:
-                    registry.propose("warden", None, f"harness: {d['name']} is not done", detail,
-                                     "check the job (the bot's logs, the nightly tuner's scheduler)")
+                try:   # a system alert, never an owner decision
+                    with journal.tx() as c:
+                        c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (?, 'warden', 'alert', ?)",
+                                  (_iso(_now()), json.dumps({"duty": d["name"], "detail": detail,
+                                                             "check": "(the bot's logs, the nightly tuner's scheduler)"})))
                     journal.set_state(key, _iso(_now()))
                 except Exception:  # noqa: BLE001
                     pass

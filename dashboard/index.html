@@ -194,7 +194,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 35</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 36</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -216,6 +216,7 @@ button.btn,.back,.filters select{min-height:44px}
 <div id="err" class="err" style="display:none"></div>
 
 <section id="overview" class="active">
+  <div id="sysalert"></div>
   <div id="banner" class="banner">Paper trading only. Nothing here can touch real money.</div>
   <div class="grid"><div>
     <div class="card"><h3>Today <span class="ago" id="todaydate"></span></h3>
@@ -386,7 +387,7 @@ function renderBot(b){
     <p style="margin-top:8px">Hard ceilings in config still apply on every profile.</p>`;
 }
 
-const DUTY = {'public repo clean':'Nothing private is on the public repo','journal healthy':'The journal file passes its integrity check','journal backed up':'A verified backup was pulled off the server','bot alive':'The bot is running','strategies scanned':'Every strategy looked at today\'s market','postmortems':'Every closed trade has been replayed','brain':'The brain has learned from the latest replays','auditor':'The auditor checked the book','daily review':'The daily report was written','weekly recap':'The weekly recap was written','nightly tuner':'The overnight tuning pass ran'};
+const DUTY = {'public repo clean':'Nothing private is on the public repo','journal healthy':'The journal file passes its integrity check','journal backed up':'A verified backup was pulled off the server','bot alive':'The bot is running','strategies scanned':'The strategies are scanning today\'s market','postmortems':'Every closed trade has been replayed','brain':'The brain has learned from the latest replays','auditor':'The auditor checked the book','daily review':'The daily report was written','weekly recap':'The weekly recap was written','nightly tuner':'The overnight tuning pass ran'};
 const tidyTimes = s => String(s||'').replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?(\+00:00|Z)?/g, m => when(/\+00:00|Z$/.test(m) ? m : m.replace(' ','T') + 'Z'));
 let HARNESS_OPEN = false;
 async function loadHarness(){
@@ -394,6 +395,8 @@ async function loadHarness(){
     const w = await api('/api/warden'); const l = w.last; const el = $('#harness');
     if(!l){ el.innerHTML = '<div class="empty">Job check: none yet. The first one runs 30 minutes after the bot starts.</div>'; return; }
     const bad = l.checks.filter(c=>!c.ok);
+    // a failed job is a system alert at the top of the Overview, never a strategy decision (owner, 2026-11-10)
+    $('#sysalert').innerHTML = bad.length ? `<div class="banner warn"><b>System check:</b> ${bad.map(c=>`the ${c.duty} job needs attention (${tidyTimes(c.detail)})`).join('; ')}. This is a job problem, not a trading decision. Tell Claude in your build chat and it gets fixed.</div>` : '';
     const headline = bad.length ? `${bad.length} job${bad.length===1?'':'s'} need${bad.length===1?'s':''} attention: ${bad.map(c=>(DUTY[c.duty]||c.duty).toLowerCase()).join('; ')}` : 'All jobs done';
     el.innerHTML = `<details ${HARNESS_OPEN?'open':''} ontoggle="HARNESS_OPEN=this.open"><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:#fff;font-weight:700">
         <span>${bad.length?'⚠️':'✅'} ${headline} <span class="ago" style="font-weight:400">· checked ${when(l.ts)}</span></span><span class="ago">details ▾</span></summary>
