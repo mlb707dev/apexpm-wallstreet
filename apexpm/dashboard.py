@@ -142,7 +142,9 @@ class Api:
                       "max_daily_loss": round(cap, 2) if cap > 0 else None,
                       "open_positions": sum(1 for t in open_ if t["status"] == "open"),
                       "pending": sum(1 for t in open_ if t["status"] == "pending"),
-                      "max_positions": band.max_positions, "in_open_notional": round(in_open, 2),
+                      "max_positions": (max(band.max_positions, profiles.MAX_POSITIONS_HARD) if profiles.positions_exception(self.j)
+                                        else band.max_positions),   # the tile shows the cap the bot is using today
+                      "in_open_notional": round(in_open, 2),
                       "unrealized_pnl": round(unreal, 2)},
             "all_time": {"closed": len(closed), "wins": wins, "win_rate": (wins / len(closed)) if closed else None,
                          "expectancy_r": (sum(rs) / len(rs)) if rs else None, "total_r": round(sum(rs), 3) if rs else 0.0,
@@ -237,11 +239,31 @@ class Api:
         return {"pending": [dict(r) for r in self.reg.decisions("pending")],
                 "resolved": [dict(r) for r in self.reg.decisions("approved")][:20] + [dict(r) for r in self.reg.decisions("dismissed")][:20]}
 
-    def resolve_decision(self, decision_id: int, status: str, note: str) -> Dict[str, Any]:
+    def promotion_subject(self, d) -> Optional[str]:
+        """The lab strategy a pending decision asks to put on paper ("Activate ..." / "Promote ..."), else None."""
+        subj = d["subject"] if d is not None else None
+        title = (d["title"] if d is not None else "") or ""
+        if subj and subj in self.reg.names() and title.startswith(("Activate ", "Promote ")) and self.reg.status(subj) == "research":
+            return subj
+        return None
+
+    def resolve_decision(self, decision_id: int, status: str, note: str, confirm: str = "") -> Dict[str, Any]:
+        """Approving an activation or promotion card DOES it (owner, 2026-11-10: two approvals of the 24/5 cards
+        changed nothing and the strategies stayed in the lab). It goes through the same typed gate as the
+        Promote button; if the gate refuses, the card stays pending and the reason comes back."""
         if status not in ("approved", "dismissed"):
             return {"ok": False, "error": "bad_status"}
+        d = self.j.q1("SELECT * FROM decisions WHERE id=? AND status='pending'", (int(decision_id),))
+        promoted = None
+        if status == "approved":
+            subj = self.promotion_subject(d)
+            if subj:
+                r = self.set_status(subj, "paper", note, confirm)
+                if not r.get("ok"):
+                    return r
+                promoted = subj
         self.reg.resolve(int(decision_id), status, f"dashboard: {note}" if note else "dashboard")
-        return {"ok": True}
+        return {"ok": True, "promoted": promoted}
 
     def news(self) -> list:
         if not self._news:
@@ -839,7 +861,8 @@ def make_handler(api: Api, token: str = ""):
             if path == "/api/settings/profile":
                 return self._json(api.set_profile(str(body.get("profile", "")), str(body.get("note", ""))))
             if path == "/api/decisions/resolve":
-                return self._json(api.resolve_decision(int(body.get("id", 0)), str(body.get("status", "")), str(body.get("note", ""))))
+                return self._json(api.resolve_decision(int(body.get("id", 0)), str(body.get("status", "")), str(body.get("note", "")),
+                                                       str(body.get("confirm", ""))))
             if path == "/api/weekly/run":
                 return self._json(api.run_weekly(str(body.get("week_end", "")), bool(body.get("email"))))
             if path == "/api/settings/positions_exception":

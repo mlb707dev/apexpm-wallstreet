@@ -194,7 +194,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 42</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 44</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -516,7 +516,7 @@ async function runWeekly(){
 async function setPosEx(on){
   const note = await ask(on?'Lift position cap for today':'Back to the normal cap', on?'Up to 5 open positions until the end of the day (adds to a position still count as one).':'Normal cap applies again.'); if(note===null) return;
   const r = await api('/api/settings/positions_exception',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on,note})});
-  if(r && r.ok){ load(); }
+  if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadHome().catch(showErr);
 }
 async function setPause(paused){
   const note = await ask((paused?'Pause':'Resume')+' new entries', paused?'No new positions until resumed. Exits keep running.':'New entries allowed again.'); if(note===null) return;
@@ -897,6 +897,7 @@ async function loadAnalytics(){
 let DRILL = null;
 async function openStrat(name, keep){
   const el = $('#ana'); el.dataset.open = name;
+  $('#master').style.display='none'; $('#stratmgmt').style.display='none'; $('#decTop').style.display='none';   // the drill-down stands alone
   const d = await api('/api/strategy/trades?name=' + encodeURIComponent(name) + '&limit=1000' + (ANA_DAYS?'&days='+ANA_DAYS:''));
   DRILL = d; if(!keep) window.scrollTo(0,0);
   const s = d.summary;
@@ -1028,16 +1029,26 @@ async function loadDecisions(){
   if (d.pending.length) { if (card.parentNode !== top) top.appendChild(card); } else if (card.parentNode === top) { $('#stratmgmt').insertBefore(card, $('#stratmgmt').firstChild); }
   $('#decpending').innerHTML = d.pending.length ? d.pending.slice().sort((a,b)=>(/24\/5/.test(b.title)?1:0)-(/24\/5/.test(a.title)?1:0)).map(x=>`<div class="card" style="background:var(--bg3)"><h3>${/24\/5/.test(x.title)?'<span class="chip t245">24/5</span> ':''}${x.title}<span class="ago">${(x.ts||'').slice(0,10)}</span></h3>
     <p>${x.detail||''}</p><p style="margin-top:6px;color:#fff">Proposal: ${x.proposal||'—'}</p>
-    <div class="actions"><button class="btn ok" onclick="resolveDecision(${x.id},'approved')">Approve</button><button class="btn" onclick="resolveDecision(${x.id},'dismissed')">Dismiss</button></div></div>`).join('')
+    <div class="actions"><button class="btn ok" onclick="resolveDecision(${x.id},'approved',${isPromo(x)?`'${x.subject}'`:'null'})">${isPromo(x)?'Approve and put on paper':'Approve'}</button><button class="btn" onclick="resolveDecision(${x.id},'dismissed')">Dismiss</button></div></div>`).join('')
     : '<div class="empty">Nothing waiting. The nightly review quarantines losers on its own and only brings you borderline calls.</div>';
   try { const ev = await api('/api/events');
     $('#events').innerHTML = ev.length ? '<table><tr><th>When</th><th>Who</th><th>Event</th><th>Detail</th></tr>' + ev.map(e=>`<tr><td>${when(e.ts)}</td><td>${e.name}</td><td>${e.event}</td><td style="white-space:normal">${e.detail||''}</td></tr>`).join('') + '</table>' : '<div class="empty">No events.</div>'; } catch(e) {}
   $('#decresolved').innerHTML = d.resolved.length ? '<table><tr><th>When</th><th>Title</th><th>Status</th><th>Note</th></tr>' + d.resolved.map(x=>`<tr><td>${(x.resolved_at||'').slice(0,10)}</td><td style="white-space:normal">${x.title}</td><td>${x.status}</td><td style="white-space:normal">${x.note||''}</td></tr>`).join('') + '</table>' : '<div class="empty">None yet.</div>';
 }
-async function resolveDecision(id, status){
-  const note = await ask((status==='approved'?'Approve':'Dismiss')+' decision #'+id, ''); if(note===null) return;
-  const r = await api('/api/decisions/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status,note})});
-  if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadDecisions().catch(showErr);
+// a card that asks to activate or promote a lab strategy: approving it puts the strategy on paper
+const isPromo = x => !!x.subject && /^(Activate|Promote) /.test(x.title||'');
+async function resolveDecision(id, status, promote){
+  let confirm = '';
+  if(status==='approved' && promote){
+    confirm = await ask('Put '+nice(promote)+' on paper', 'It places real paper orders from its next scan. Type the word promote to continue.');
+    if(confirm===null) return;
+    if((confirm||'').trim().toLowerCase()!=='promote'){ toast('Nothing changed: type promote to confirm'); return; }
+  }
+  const note = await ask((status==='approved'?(promote?'Reason for putting it on paper':'Approve'):'Dismiss')+(promote&&status==='approved'?'':' decision #'+id), promote&&status==='approved'?'Required, a few words: why you are approving it.':'');
+  if(note===null) return;
+  const r = await api('/api/decisions/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status,note,confirm})});
+  if(!r.ok) toast('Nothing changed: '+r.error); else toast(r.promoted ? nice(r.promoted)+' is now on paper' : 'Done');
+  loadDecisions().catch(showErr);
 }
 const loaders = {overview: loadHome, positions: loadPositions, stats: loadStats, analytics: loadAnalytics, reports: loadReports, settings: loadSettings};
 document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
