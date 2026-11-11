@@ -194,7 +194,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 37</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 38</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -207,7 +207,7 @@ button.btn,.back,.filters select{min-height:44px}
     <span class="heq" id="heq">—</span></div>
   <nav class="tabs" id="tabs">
     <button data-tab="overview" class="on">Overview</button><button data-tab="positions">Positions</button>
-    <button data-tab="activity">Activity</button><button data-tab="stats">Trades</button><button data-tab="analytics">Strategies <span id="decbadge"></span></button>
+    <button data-tab="stats">Trades</button><button data-tab="analytics">Strategies <span id="decbadge"></span></button>
     <button data-tab="reports">Reports</button><button data-tab="settings">Settings</button>
   </nav>
 </header>
@@ -251,27 +251,24 @@ button.btn,.back,.filters select{min-height:44px}
 
 <section id="positions"><div class="card tbl" id="poslist"></div></section>
 
-<section id="activity">
-  <div class="card"><h3>Trades <span class="ago" id="actsum"></span></h3><div id="actseg"></div><div id="trades" class="feed"></div></div>
-  <details class="card tbl"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Trades the bot passed on <span class="ago">7 days</span></summary><div id="rej" style="margin-top:10px"></div></details>
-  <details class="card tbl"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Strategy events <span class="ago">promotions, suspensions, reviews</span></summary><div id="events" style="margin-top:10px"></div></details>
-</section>
 
 <section id="stats">
   <div class="card"><h3>Trade stats <span class="ago" id="st_scope"></span></h3>
     <div id="st_win"></div><div id="st_book"></div>
     <details id="st_slice" style="margin-top:4px"><summary style="cursor:pointer;color:var(--sky);font-weight:600">Slice the trades <span class="ago" id="st_slicen"></span></summary><div id="st_filters"></div></details>
   </div>
-  <div class="card" id="st_open"></div>
+  <div class="card feed" id="st_open"></div>
   <div class="card" id="st_res"></div>
   <div class="card tbl" id="st_by"></div>
-  <div class="card" id="st_list"></div>
+  <div class="card feed" id="st_list"></div>
+  <details class="card tbl"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Trades the bot passed on <span class="ago">7 days</span></summary><div id="rej" style="margin-top:10px"></div></details>
 </section>
 <section id="analytics"><div id="decTop"></div><div class="card" id="master" style="position:relative"><h3>Master view</h3><div class="empty">Loading…</div></div><div id="ana"></div>
   <div id="stratmgmt">
     <div class="card" id="deccard"><h3>Needs your call <span class="ago">borderline cases the review will not decide alone</span></h3><div id="decpending"></div></div>
     <div class="card"><h3>Manage strategies <span class="ago">live · paper · shadow (lab + quarantine)</span></h3><div id="stratlist"></div></div>
     <div class="card tbl"><h3>Your past calls</h3><div id="decresolved"></div></div>
+    <details class="card tbl"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Strategy events <span class="ago">promotions, suspensions, reviews</span></summary><div id="events" style="margin-top:10px"></div></details>
   </div>
 </section>
 <section id="reports"><div class="card tbl"><h3>Upcoming events <span class="ago">next 30 days</span></h3><div id="upcoming"></div></div><div id="weeklylist"></div><div id="reportlist"></div></section>
@@ -318,7 +315,7 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.style.display='bl
 async function api(p, opts={}){
   const base = LS.api; const headers = Object.assign({}, opts.headers||{});
   if (LS.tok) headers['Authorization'] = 'Bearer ' + LS.tok;
-  const r = await fetch(base + p, Object.assign({}, opts, {headers}));
+  const r = await fetch(base + p, Object.assign({cache: 'no-store'}, opts, {headers}));
   if (r.status === 401) { showLogin(); throw new Error('unauthorized'); }
   if (r.status === 404 && !LS.api) { showLogin(); throw new Error('unauthorized'); }
   if (!r.ok) throw new Error(p+' '+r.status + (r.status===404 ? ' (is the API address right?)' : ''));
@@ -543,13 +540,12 @@ const STATUS_WORD = {open:'Open', pending:'Order working', closed:'Closed', canc
 const MODE_WORD = {PAPER:'paper', LIVE:'live money', DRY_RUN:'simulated', RESEARCH:'lab'};
 const etDay = iso => { const d = new Date(iso); return isNaN(d) ? String(iso||'').slice(0,10) : d.toLocaleDateString('en-US',{timeZone:'America/New_York',weekday:'short',month:'short',day:'numeric'}); };
 const etTime = iso => { const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleTimeString('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit'}); };
-let ACT_FILTER = 'all', ACT_ROWS = [];
 function tradeRow(t){
   const live = t.status==='open', wait = t.status==='pending', gone = t.status==='cancelled';
   const side = SIDE[t.direction] || t.direction;
   const px = t.exit_price!=null ? `${fmt(t.entry)} → ${fmt(t.exit_price)}` : `in at ${fmt(t.entry)} · stop ${fmt(t.stop)} · target ${fmt(t.target)}`;
-  const out = t.closed_at ? ` · ${why(t.exit_reason)} ${etTime(t.closed_at)}${t.exit_session && t.exit_session!==t.session ? ' '+sessChip(t.exit_session,true) : ''}` : '';
-  const res = t.pnl!=null ? `<span class="${cls(t.pnl)}">${money(t.pnl)}</span><small class="${cls(t.rr_realized)}">${t.rr_realized==null?'':signed(t.rr_realized)+'× risk'}</small>`
+  const out = t.closed_at ? ` · ${why(t.exit_reason)} ${etTime(t.closed_at)}${t.exit_session && t.exit_session!==t.session ? ' '+sessChip(t.exit_session,true) : ''}${t.held_min!=null ? ' · held '+hold(t.held_min) : ''}` : '';
+  const res = t.pnl!=null ? `<span class="${cls(t.pnl)}">${money(t.pnl)}</span>${t.pnl_pct!=null?`<small class="${cls(t.pnl_pct)}">${signed(t.pnl_pct)}%</small>`:''}<small class="${cls(t.rr_realized)}">${t.rr_realized==null?'':signed(t.rr_realized)+'× risk'}</small>`
             : `<span class="chip st-${t.status}">${STATUS_WORD[t.status]||t.status}</span>`;
   const mode = MODE_WORD[t.mode] || (t.mode||'').toLowerCase();
   return `<div class="tr ${live?'live':wait?'wait':gone?'gone':''}">
@@ -559,33 +555,6 @@ function tradeRow(t){
       <div class="px">${px}${out}</div>${greeks(t)}</div>
     <div class="res">${res}${t.pnl!=null?`<span class="chip st-closed" style="font-size:9px">${STATUS_WORD[t.status]||t.status}</span>`:''}</div></div>`;
 }
-function drawActivity(){
-  const ts = ACT_ROWS.slice().sort((x,y)=>String(y.opened_at||'').localeCompare(String(x.opened_at||'')) || y.id-x.id);
-  const n = {all: ts.length, rth: ts.filter(t=>!isExt(t)).length, ext: ts.filter(isExt).length};
-  $('#actseg').innerHTML = `<div class="seg">${[['all','All'],['rth','Regular hours'],['ext','Extended & overnight']].map(([k,l])=>`<button class="${ACT_FILTER===k?'on':''}" onclick="ACT_FILTER='${k}';drawActivity()">${l} (${n[k]})</button>`).join('')}</div>`;
-  const rows = ts.filter(t => ACT_FILTER==='all' || (ACT_FILTER==='ext') === isExt(t));
-  const now = rows.filter(t => t.status==='open' || t.status==='pending');
-  const rest = rows.filter(t => !(t.status==='open' || t.status==='pending'));
-  const live = ts.filter(t=>t.status==='open').length;
-  $('#actsum').textContent = live ? `${live} open now · times in New York` : 'times in New York';
-  let html = '';
-  if(now.length) html += `<div class="day"><span>Live now</span><span>${now.length}</span></div>` + now.map(tradeRow).join('');
-  let day = null, dayRows = [];
-  const flush = () => { if(!dayRows.length) return; const pnl = Math.round(dayRows.reduce((a,t)=>a+(t.pnl||0),0)*100)/100 || 0, closed = dayRows.filter(t=>t.pnl!=null).length;
-    html += `<div class="day"><span>${day}</span><span class="${cls(closed?pnl:null)}">${closed?money(pnl)+' · ':''}${dayRows.length} trade${dayRows.length===1?'':'s'}</span></div>` + dayRows.map(tradeRow).join(''); dayRows = []; };
-  for(const t of rest){ const d = etDay(t.opened_at); if(d!==day){ flush(); day = d; } dayRows.push(t); }
-  flush();
-  $('#trades').innerHTML = html || `<div class="empty">${ts.length ? 'No trades in this view.' : 'No trades journaled yet.'}</div>`;
-}
-async function loadActivity(){
-  ACT_ROWS = await api('/api/trades');
-  drawActivity();
-  const rj = await api('/api/rejections');
-  $('#rej').innerHTML = rj.length ? '<table><tr><th>Date</th><th>Strategy</th><th>Why it passed</th><th>Times</th></tr>' + rj.map(r=>`<tr><td>${whenDay(r.date)}</td><td>${nice(r.setup)}</td><td>${r.reason.replace(/_/g,' ')}</td><td>${r.n}</td></tr>`).join('') + '</table>' : '<div class="empty">No rejections in the last 7 days.</div>';
-  const ev = await api('/api/events');
-  $('#events').innerHTML = ev.length ? '<table><tr><th>When</th><th>Who</th><th>Event</th><th>Detail</th></tr>' + ev.map(e=>`<tr><td>${when(e.ts)}</td><td>${e.name}</td><td>${e.event}</td><td style="white-space:normal">${e.detail||''}</td></tr>`).join('') + '</table>' : '<div class="empty">No events.</div>';
-}
-
 const GROUP_LABELS = {by_strategy:['By strategy','Strategy'], by_direction:['Buys vs. short sales','Side'], by_hour:['By time of day (New York)','Hour'], by_weekday:['By day of the week','Day'], by_exit:['How trades ended','Ending'], by_regime:['By market mood','Mood'], by_conviction:['By confirmations at entry','Confirmations'], by_asset_class:['Stocks, options, crypto','Type'], by_symbol:['By ticker','Ticker'], by_strategy_symbol:['Strategy and ticker','Pair'], by_entry_delta:['Options: delta when bought','Delta'], by_entry_iv:['Options: implied volatility when bought','IV'], by_entry_vix:['By market fear (VIX) at entry','VIX']};
 function keyLabel(group, k){
   if(group==='by_hour'){ const h=parseInt(k,10); if(isNaN(h)) return k; return (h%12||12)+(h<12?' AM':' PM'); }
@@ -1045,6 +1014,8 @@ async function loadDecisions(){
     <p>${x.detail||''}</p><p style="margin-top:6px;color:#fff">Proposal: ${x.proposal||'—'}</p>
     <div class="actions"><button class="btn ok" onclick="resolveDecision(${x.id},'approved')">Approve</button><button class="btn" onclick="resolveDecision(${x.id},'dismissed')">Dismiss</button></div></div>`).join('')
     : '<div class="empty">Nothing waiting. The nightly review quarantines losers on its own and only brings you borderline calls.</div>';
+  try { const ev = await api('/api/events');
+    $('#events').innerHTML = ev.length ? '<table><tr><th>When</th><th>Who</th><th>Event</th><th>Detail</th></tr>' + ev.map(e=>`<tr><td>${when(e.ts)}</td><td>${e.name}</td><td>${e.event}</td><td style="white-space:normal">${e.detail||''}</td></tr>`).join('') + '</table>' : '<div class="empty">No events.</div>'; } catch(e) {}
   $('#decresolved').innerHTML = d.resolved.length ? '<table><tr><th>When</th><th>Title</th><th>Status</th><th>Note</th></tr>' + d.resolved.map(x=>`<tr><td>${(x.resolved_at||'').slice(0,10)}</td><td style="white-space:normal">${x.title}</td><td>${x.status}</td><td style="white-space:normal">${x.note||''}</td></tr>`).join('') + '</table>' : '<div class="empty">None yet.</div>';
 }
 async function resolveDecision(id, status){
@@ -1052,7 +1023,7 @@ async function resolveDecision(id, status){
   const r = await api('/api/decisions/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status,note})});
   if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadDecisions().catch(showErr);
 }
-const loaders = {overview: loadHome, positions: loadPositions, activity: loadActivity, stats: loadStats, analytics: loadAnalytics, reports: loadReports, settings: loadSettings};
+const loaders = {overview: loadHome, positions: loadPositions, stats: loadStats, analytics: loadAnalytics, reports: loadReports, settings: loadSettings};
 document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
   document.querySelectorAll('section').forEach(s=>s.classList.remove('active')); $('#'+b.dataset.tab).classList.add('active');
@@ -1103,8 +1074,8 @@ function stPick(){
   const inBook = t => ST.book === 'both' || t.book === ST.book;
   const passes = t => ST_FILTERS.every(([k, , f]) => !ST.f[k] || f(t) === ST.f[k]);
   const closed = all.filter(t => t.status === 'closed' && inBook(t) && passes(t) && (!since || (t.closed_at || '') >= since));
-  const open = all.filter(t => t.status === 'open' && inBook(t) && passes(t));
-  return {closed, open, base: all.filter(t => inBook(t) && (t.status === 'open' || !since || (t.closed_at || '') >= since))};
+  const open = all.filter(t => (t.status === 'open' || t.status === 'pending') && inBook(t) && passes(t));
+  return {closed, open, base: all.filter(t => inBook(t) && (t.status !== 'closed' || !since || (t.closed_at || '') >= since))};
 }
 function stSum(ts){
   const w = ts.filter(t => t.pnl > 0), l = ts.filter(t => t.pnl < 0), sum = a => a.reduce((x, t) => x + (t.pnl || 0), 0);
@@ -1144,9 +1115,8 @@ function drawStats(){
   $('#st_scope').textContent = (ST_WIN.find(w => w[0] === ST.win) || [])[1] + (ST.win === '5d' ? ' (trading days)' : '') + (nf ? ' · sliced' : '');
   // open now: the live view of each book
   const openRows = open.slice().sort((a, b) => (b.opened_at || '').localeCompare(a.opened_at || ''));
-  $('#st_open').innerHTML = `<h3>Open now <span class="ago">${openRows.length} ${ST.book === 'both' ? 'in both books' : 'in the ' + ST.book + ' book'}</span></h3>` + (openRows.length ? openRows.map(t =>
-    `<div class="tr trb live"><div class="h"><span>${t.side === 'buy' ? 'Buy' : 'Short'} ${t.qty} <b>${t.symbol}</b></span><span class="chip ${t.book === 'live' ? 'paper' : 'research'}">${t.book === 'live' ? 'live' : 'shadow'}</span></div>
-     <div class="m">${nice(t.strategy)} · in at <span>${fmt(t.entry)}</span> · stop <span>${fmt(t.stop)}</span> · target <span>${fmt(t.target)}</span><br>Opened ${when(t.opened_at)} · held ${hold((Date.now() - new Date(t.opened_at)) / 6e4)}</div></div>`).join('') : '<div class="empty">Nothing open right now.</div>');
+  $('#st_open').innerHTML = `<h3>Open now <span class="ago">${openRows.length} ${ST.book === 'both' ? 'in both books' : 'in the ' + ST.book + ' book'} · times in New York</span></h3>` + (openRows.length ? openRows.map(tradeRow).join('') : '<div class="empty">Nothing open right now.</div>');
+
   // results
   if (ST.book === 'both') {
     const L = stSum(closed.filter(t => t.book === 'live')), S = stSum(closed.filter(t => t.book === 'shadow'));
@@ -1158,15 +1128,20 @@ function drawStats(){
   $('#st_by').innerHTML = closed.length ? stGroup(closed, t => t.strategy, 'By strategy', nice) + stGroup(closed, t => t.symbol, 'By ticker') : '';
   $('#st_by').style.display = closed.length ? '' : 'none';
   const rows = closed.slice().sort((a, b) => (b.closed_at || '').localeCompare(a.closed_at || ''));
-  $('#st_list').innerHTML = `<h3>Trades <span class="ago">${rows.length} closed, newest first</span></h3>` + (rows.length ? rows.slice(0, ST.show).map(t =>
-    `<div class="tr trb"><div class="h"><span>${t.side === 'buy' ? 'Buy' : 'Short'} ${t.qty} <b>${t.symbol}</b> <span class="chip ${t.book === 'live' ? 'paper' : 'research'}">${t.book === 'live' ? (t.account === 'real money' ? 'live · real' : 'live · paper') : 'shadow'}</span></span><b class="${cls(t.pnl)}">${money(t.pnl)}</b></div>
-     <div class="m">${nice(t.strategy)} · <span>${fmt(t.entry)} → ${fmt(t.exit)}</span> · <span class="${cls(t.pnl_pct)}">${t.pnl_pct == null ? '—' : signed(t.pnl_pct) + '%'}</span> · <span class="${cls(t.r)}">${signed(t.r)}× risk</span><br>${WHY[t.ended] || t.ended || 'Closed'} · held ${hold(t.held_min)} · ${when(t.closed_at)}</div></div>`).join('') +
+  const shown = rows.slice(0, ST.show); let html = '', day = null, dayRows = [];
+  const flush = () => { if (!dayRows.length) return; const all = rows.filter(t => etDay(t.closed_at) === day), pnl = all.reduce((a, t) => a + (t.pnl || 0), 0);
+    html += `<div class="day"><span>${day}</span><span class="${cls(pnl)}">${money(pnl)} · ${all.length} trade${all.length === 1 ? '' : 's'}</span></div>` + dayRows.map(tradeRow).join(''); dayRows = []; };
+  for (const t of shown) { const d = etDay(t.closed_at); if (d !== day) { flush(); day = d; } dayRows.push(t); }
+  flush();
+  $('#st_list').innerHTML = `<h3>Trades <span class="ago">${rows.length} closed, newest first · times in New York</span></h3>` + (rows.length ? html +
     (rows.length > ST.show ? `<div class="actions"><button class="btn ok" onclick="ST.show+=100;drawStats()">Show ${Math.min(100, rows.length - ST.show)} more</button></div>` : '') : '<div class="empty">No closed trades in this window.</div>');
 }
 function stWin(k){ ST.win = k; ST.show = 50; drawStats(); }
 function stBook(k){ ST.book = k; ST.show = 50; drawStats(); }
 function stFilter(k, v){ ST.f[k] = v; ST.show = 50; drawStats(); }
-async function loadStats(){ ST.data = await api('/api/stats'); drawStats(); }
+async function loadStats(){ ST.data = await api('/api/stats'); drawStats();
+  const rj = await api('/api/rejections');
+  $('#rej').innerHTML = rj.length ? '<table><tr><th>Date</th><th>Strategy</th><th>Why it passed</th><th>Times</th></tr>' + rj.map(r=>`<tr><td>${whenDay(r.date)}</td><td>${nice(r.setup)}</td><td>${r.reason.replace(/_/g,' ')}</td><td>${r.n}</td></tr>`).join('') + '</table>' : '<div class="empty">No rejections in the last 7 days.</div>'; }
 async function loadAll(){ await loadHome(); }
 (async function boot(){
   const q = new URLSearchParams(location.search);
@@ -1179,7 +1154,20 @@ async function loadAll(){ await loadHome(); }
     if (!ok) { showLogin(); return; }
   }
   loadAll().catch(showErr);
-  setInterval(()=>{ const on=document.querySelector('#tabs button.on').dataset.tab; loaders[on]().catch(()=>{}); }, 30000);
+  // Fresh data, always (owner, 2026-11-10: a phone kept showing decisions dismissed hours earlier). iPhone
+  // freezes a background page and shows it as it was; so refresh the moment the app is back in front, and
+  // say plainly when what is on screen is older than two minutes instead of failing silently.
+  let LAST_OK = Date.now();
+  const refresh = () => { const on=document.querySelector('#tabs button.on').dataset.tab;
+    loaders[on]().then(()=>{ LAST_OK = Date.now(); staleCheck(); }).catch(()=>staleCheck()); if (on !== 'overview') loadHarness().catch(()=>{}); };
+  const staleCheck = () => { let el = $('#stale'); if (!el) { el = document.createElement('div'); el.id = 'stale'; el.className = 'banner warn';
+      el.style.cssText = 'margin:10px auto 0;max-width:1100px'; $('#alerts').before(el); }
+    const age = Date.now() - LAST_OK; el.style.display = age > 120000 ? 'block' : 'none';
+    el.textContent = `Showing data from ${new Date(LAST_OK).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}. The bot has not answered since; retrying.`; };
+  setInterval(refresh, 30000); setInterval(staleCheck, 15000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); });
+  window.addEventListener('pageshow', e => { if (e.persisted) refresh(); });
+  window.addEventListener('focus', refresh);
 })();
 </script>
 </body>

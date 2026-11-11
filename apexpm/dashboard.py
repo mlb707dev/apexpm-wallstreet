@@ -474,6 +474,7 @@ class Api:
         d = sa.stats_trades(self.j)
         for t in d["trades"]:
             t["session"] = trade_session(t.get("opened_at"), t.get("symbol"))
+            t["exit_session"] = trade_session(t.get("closed_at"), t.get("symbol")) if t.get("closed_at") else None
         return d
 
     def master(self, days: int = 0) -> Dict[str, Any]:

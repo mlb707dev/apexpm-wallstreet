@@ -276,18 +276,19 @@ def master_trades(journal, days: Optional[int] = None, limit: int = 20000) -> Di
 
 
 def stats_trades(journal, limit: int = 20000) -> Dict[str, Any]:
-    """Every trade (closed and still open) in every book for the Stats tab: plain facts per trade so the
+    """Every trade (closed, open, or an order still working) in every book for the Trades tab: facts per trade so the
     page can window (24h / 5 trading days / 30 days / all time), split live vs shadow and slice instantly.
     "Live book" = orders actually placed (paper now, real money later); "shadow book" = the lab."""
     rows = [dict(r) for r in journal.q(
-        "SELECT * FROM trades WHERE (status='closed' AND pnl IS NOT NULL) OR status='open' ORDER BY COALESCE(closed_at, opened_at) DESC LIMIT ?",
+        "SELECT * FROM trades WHERE (status='closed' AND pnl IS NOT NULL) OR status IN ('open', 'pending') ORDER BY COALESCE(closed_at, opened_at) DESC LIMIT ?",
         (int(limit),))]
     out = []
     for raw in rows:
+        n = _notes(raw)
         t = enrich(raw)
         book = _book_of(t.get("mode"))
         out.append({
-            "id": t["id"], "status": "open" if t.get("status") == "open" else "closed",
+            "id": t["id"], "status": t.get("status") if t.get("status") in ("open", "pending") else "closed",
             "book": "shadow" if book == "lab" else "live", "account": book,
             "strategy": t["setup"], "symbol": t["symbol"], "asset": _asset_class(raw),
             "side": "buy" if t["direction"] == "long" else "short", "qty": t.get("qty"),
@@ -296,5 +297,10 @@ def stats_trades(journal, limit: int = 20000) -> Dict[str, Any]:
             "pnl": round(float(t["pnl"]), 2) if t.get("pnl") is not None else None, "pnl_pct": t.get("pnl_pct"),
             "r": round(float(t["rr_realized"]), 3) if t.get("rr_realized") is not None else None,
             "ended": t.get("exit_reason"), "cost": t.get("cost"),
+            # the same names the trade card reads
+            "setup": t["setup"], "direction": t["direction"], "exit_price": t.get("exit_price"), "exit_reason": t.get("exit_reason"),
+            "rr_realized": t.get("rr_realized"), "mode": t.get("mode"), "contract": t.get("contract"),
+            "greeks_entry": n.get("greeks_entry"), "greeks_exit": n.get("greeks_exit"), "vix_entry": n.get("vix_entry"), "vix_exit": n.get("vix_exit"),
+            "desk": bool(n.get("ext")),
         })
     return {"n": len(out), "trades": out}
