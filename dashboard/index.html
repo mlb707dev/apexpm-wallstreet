@@ -179,7 +179,7 @@ button.btn,.back,.filters select{min-height:44px}
   table.cardify td:last-child{border-bottom:0}
   table.cardify td::before{content:attr(data-label);color:var(--dim);font-family:'DM Sans',sans-serif;font-size:13px;text-align:left;flex:0 0 auto;max-width:45%}
 }
-@media(max-width:600px){.chip,.tr .chip,.tr .sub .chip{font-size:13px!important}.kv div .k,.sc .big .k{font-size:13px}.feed .day,.feed .day span{font-size:13px!important}.tier p,p,.card p.empty{font-size:16px}summary{font-size:16px!important;min-height:44px;display:flex;align-items:center}}
+@media(max-width:600px){.chip,.tr .chip,.tr .sub .chip{font-size:13px!important}.kv div .k,.sc .big .k{font-size:13px}.feed .day,.feed .day span{font-size:13px!important}.tier p,p,.card p.empty{font-size:16px}summary{font-size:16px!important;min-height:44px;display:flex;align-items:center;flex-wrap:wrap;gap:2px 8px}}
 .cmp{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);font-size:14px}.cmp>div{padding:8px 4px;border-bottom:1px solid var(--line);min-width:0;overflow-wrap:anywhere}.cmp>div.h{color:var(--dim);font-size:13px;text-transform:uppercase;letter-spacing:.06em}.cmp>div.n{font-family:'JetBrains Mono',monospace;text-align:right;color:#fff}.trb{display:block!important}table.keep td{white-space:normal}@media(max-width:600px){.seg.tight{grid-template-columns:repeat(auto-fit,minmax(68px,1fr))!important}table.keep td{font-size:14px}.cmp{font-size:15px}}
 @media(max-width:350px){.hbar h1{display:none}}
 </style>
@@ -194,7 +194,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 40</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 41</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
