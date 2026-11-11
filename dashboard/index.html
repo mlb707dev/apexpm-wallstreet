@@ -181,6 +181,7 @@ button.btn,.back,.filters select{min-height:44px}
 }
 @media(max-width:600px){.chip,.tr .chip,.tr .sub .chip{font-size:13px!important}.kv div .k,.sc .big .k{font-size:13px}.feed .day,.feed .day span{font-size:13px!important}.tier p,p,.card p.empty{font-size:16px}summary{font-size:16px!important;min-height:44px;display:flex;align-items:center;flex-wrap:wrap;gap:2px 8px}}
 .cmp{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);font-size:14px}.cmp>div{padding:8px 4px;border-bottom:1px solid var(--line);min-width:0;overflow-wrap:anywhere}.cmp>div.h{color:var(--dim);font-size:13px;text-transform:uppercase;letter-spacing:.06em}.cmp>div.n{font-family:'JetBrains Mono',monospace;text-align:right;color:#fff}.trb{display:block!important}table.keep td{white-space:normal}@media(max-width:600px){.seg.tight{grid-template-columns:repeat(auto-fit,minmax(68px,1fr))!important}table.keep td{font-size:14px}.cmp{font-size:15px}}
+.legbody{margin:18px 4px 4px;padding-top:12px;border-top:1px solid var(--line);color:var(--dim)}.legbody h4{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:10px 0 6px}.legbody h4:first-child{margin-top:0}.leg{display:grid;grid-template-columns:minmax(0,1fr);gap:5px 24px;font-size:12px;line-height:1.45}.leg div{min-width:0;overflow-wrap:anywhere}.leg b{color:var(--text);font-weight:600;margin-right:4px}@media(min-width:800px){.leg{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.legbody .leg,.legbody .leg div{font-size:13px}}
 @media(max-width:350px){.hbar h1{display:none}}
 </style>
 </head>
@@ -194,7 +195,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 44</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 45</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -263,7 +264,7 @@ button.btn,.back,.filters select{min-height:44px}
   <div class="card tbl" id="st_by"></div>
   <div class="card feed" id="st_list"></div>
   <details class="card tbl"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Trades the bot passed on <span class="ago">7 days</span></summary><div id="rej" style="margin-top:10px"></div></details>
-  <details class="card legend"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Legend <span class="ago">what the strategy names and short forms mean</span></summary><div class="legbody" style="margin-top:10px"></div></details>
+  <div class="legbody"></div>
 </section>
 <section id="analytics"><div id="decTop"></div><div class="card" id="master" style="position:relative"><h3>Master view</h3><div class="empty">Loading…</div></div><div id="ana"></div>
   <div id="stratmgmt">
@@ -271,7 +272,7 @@ button.btn,.back,.filters select{min-height:44px}
     <div class="card"><h3>Manage strategies <span class="ago">live · paper · shadow (lab + quarantine)</span></h3><div id="stratlist"></div></div>
     <div class="card tbl"><h3>Your past calls</h3><div id="decresolved"></div></div>
     <details class="card tbl"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Strategy events <span class="ago">promotions, suspensions, reviews</span></summary><div id="events" style="margin-top:10px"></div></details>
-  <details class="card legend"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Legend <span class="ago">what the strategy names and short forms mean</span></summary><div class="legbody" style="margin-top:10px"></div></details>
+  <div class="legbody"></div>
   </div>
 </section>
 <section id="reports"><div class="card tbl"><h3>Upcoming events <span class="ago">next 30 days</span></h3><div id="upcoming"></div></div><div id="weeklylist"></div><div id="reportlist"></div></section>
@@ -1173,10 +1174,10 @@ let LEGEND = null;
 async function loadLegend(){
   try {
     if (!LEGEND) LEGEND = await api('/api/glossary');
-    const g = LEGEND, row = (k, v) => `<div class="row" style="align-items:flex-start;gap:12px"><b style="flex:0 0 38%;white-space:normal">${k}</b><span style="white-space:normal;text-align:left;flex:1">${v}</span></div>`;
-    const html = (g.strategies.length ? `<p style="color:#fff;font-weight:600;margin-bottom:4px">Strategies</p>` + g.strategies.map(s => row(s.full, s.what || 'No description yet.')).join('') : '') +
-      (g.terms.length ? `<p style="color:#fff;font-weight:600;margin:12px 0 4px">Short forms</p>` + g.terms.map(t => row(t.term, t.what)).join('') : '');
-    document.querySelectorAll('.legbody').forEach(el => { el.innerHTML = html || '<div class="empty">No legend in this build.</div>'; });
+    const g = LEGEND, item = (k, v) => `<div><b>${k}</b> ${v}</div>`;
+    const html = (g.strategies.length ? `<h4>Strategy key</h4><div class="leg">${g.strategies.map(x => item(x.full, x.what)).join('')}</div>` : '') +
+      (g.terms.length ? `<h4>Shorthand</h4><div class="leg">${g.terms.map(t => item(t.term, t.what)).join('')}</div>` : '');
+    document.querySelectorAll('.legbody').forEach(el => { el.innerHTML = html; });
   } catch(e) {}
 }
 async function loadStats(){ ST.data = await api('/api/stats'); drawStats(); loadLegend();
