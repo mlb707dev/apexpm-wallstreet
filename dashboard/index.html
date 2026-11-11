@@ -195,7 +195,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 46</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 47</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -801,7 +801,7 @@ function drawQuadrant(groups, cs, width){
 function drawClock(trades, cs, width){
   const S = Math.max(300, Math.min(440, width || 400)), C = S / 2, R0 = Math.round(S * 0.115), R1 = Math.round(S * 0.445);     // inner radius = worst, outer = best
   const lo = -2, hi = 3, rr = v => R0 + (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (R1 - R0);
-  const ang = (h, m) => ((h * 60 + m) / 1440) * 2 * Math.PI - Math.PI / 2;   // midnight at the top, clockwise
+  const ang = (h, m) => ((h * 60 + m) / 1440) * 2 * Math.PI + Math.PI / 2;   // noon at the top, midnight at the bottom, clockwise
   const s = svgEl('svg', {viewBox: `0 0 ${S} ${S}`, width: '100%', role: 'img', 'aria-label': 'Every trade on a 24-hour clock'});
   const arc = (h0, m0, h1, m1, fill) => {
     const a0 = ang(h0, m0), a1 = ang(h1, m1), big = (a1 - a0) > Math.PI ? 1 : 0;
@@ -812,8 +812,8 @@ function drawClock(trades, cs, width){
   arc(4, 0, 9, 30, 'rgba(168,85,247,0.06)');       // pre-market
   arc(16, 0, 20, 0, 'rgba(168,85,247,0.06)');      // after-hours
   [lo, 0, hi].forEach(v => s.appendChild(svgEl('circle', {cx: C, cy: C, r: rr(v), fill: 'none', stroke: v === 0 ? '#3a4570' : '#222b48', 'stroke-width': v === 0 ? 1.5 : 1, 'stroke-dasharray': v === 0 ? '4 4' : ''})));
-  s.appendChild(svgEl('text', {x: C + 4, y: C - rr(0) - 4, fill: '#6b7299', 'font-size': 10}, 'break-even'));
-  s.appendChild(svgEl('text', {x: C + 4, y: C - rr(hi) + 12, fill: '#6b7299', 'font-size': 10}, '+3× risk'));
+  s.appendChild(svgEl('text', {x: C + 4, y: C + rr(0) + 12, fill: '#6b7299', 'font-size': 10}, 'break-even'));
+  s.appendChild(svgEl('text', {x: C + 4, y: C + rr(hi) - 5, fill: '#6b7299', 'font-size': 10}, '+3× risk'));
   [[0, 'midnight'], [4, '4 AM'], [9.5, '9:30'], [12, 'noon'], [16, '4 PM'], [20, '8 PM']].forEach(([h, lab]) => {
     const a = ang(Math.floor(h), (h % 1) * 60), r = R1 + 12;
     s.appendChild(svgEl('line', {x1: C + R0 * Math.cos(a), y1: C + R0 * Math.sin(a), x2: C + R1 * Math.cos(a), y2: C + R1 * Math.sin(a), stroke: '#222b48'}));
@@ -866,7 +866,7 @@ function drawMaster(){
     </div>
     <p class="ago" style="margin:0 0 6px;white-space:normal">Each bubble is a group of trades: right = wins more often, up = bigger average result, size = number of trades. Hover for numbers, tap for the trades.</p>
     <div class="mvgrid"><div id="mvq"></div><div id="mvc"></div></div>
-    <p class="ago" style="margin-top:4px;white-space:normal">The clock: each dot is one trade, placed at the time it opened (New York time, midnight at the top). Farther out = better result; the dashed ring is break-even. Dot size = dollars at risk. Shaded: regular hours (blue), pre-market and after-hours (purple).</p>
+    <p class="ago" style="margin-top:4px;white-space:normal">The clock: each dot is one trade, placed at the time it opened (New York time, noon at the top, midnight at the bottom). Farther out = better result; the dashed ring is break-even. Dot size = dollars at risk. Shaded: regular hours (blue), pre-market and after-hours (purple).</p>
     ${mvDetail(sel)}
     <details style="margin-top:8px"><summary style="font-size:12px;color:var(--dim);cursor:pointer">Show as a table</summary><div class="tbl"><table><tr><th>${(LENSES.find(l => l[0] === MV.lens) || LENSES[0])[1]}</th><th>Trades</th><th>Won</th><th>Hit target</th><th>Avg per trade</th><th>Net</th><th>Best</th><th>Worst</th></tr>${groups.map(g => `<tr><td style="white-space:normal">${g.label}${g.ck && g.ck !== g.label ? ' · ' + g.ck : ''}</td><td>${g.n}</td><td>${Math.round(g.win * 100)}%</td><td>${Math.round(g.hit * 100)}%</td><td class="${cls(g.avg)}">${signed(g.avg)}×</td><td class="${cls(g.net)}">${money(g.net)}</td><td>${money(g.best)}</td><td>${money(g.worst)}</td></tr>`).join('')}</table></div></details>
     <div id="mvtip" class="mvtip"></div>`;
