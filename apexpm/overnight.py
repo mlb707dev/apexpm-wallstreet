@@ -217,6 +217,13 @@ class OvernightDesk:
         safe(self.bot.journal.set_state, "overnight_tick", now_utc.isoformat(timespec="seconds"))
         self.poll_pending(now_utc, session)
         self.manage_exits(now_utc, session)
+        try:   # the desk's shadow book: simulated fills and exits for its lab strategies, in every session
+            from . import shadow
+            today = now_et.date().isoformat()
+            shadow.manage_desk(self.bot.journal, self.cfg, lambda sym: self._price(sym, session)[0], now_utc=now_utc,
+                               tradable=lambda sym: self.can_trade(sym, session, today))
+        except Exception as exc:  # noqa: BLE001
+            self.log.warning("desk: shadow pass failed: %s", exc)
         if session in xs.EXT_SESSIONS:
             self.scan(now_utc, now_et, session)
 
@@ -273,6 +280,13 @@ class OvernightDesk:
         if status == "research":
             safe(j.set_state, wkey, ts)
             reject("research_observed", sig.direction, detail)
+            try:   # shadow book: follow the lab signal as a simulated limit order (isolated table, never an order)
+                from . import shadow
+                st = self.bot.state
+                equity = float(st.equity) if st is not None and getattr(st, "equity", 0) else float(self.bot.broker.account().equity)
+                shadow.open_desk(j, sig, self.cfg, equity=equity, session=session, now_utc=now_utc, session_date=today)
+            except Exception as exc:  # noqa: BLE001
+                self.log.warning("desk: shadow entry failed for %s %s: %s", strat.name, symbol, exc)
             return
         if status not in ("paper", "live"):
             return
