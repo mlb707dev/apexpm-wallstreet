@@ -194,7 +194,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 41</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 42</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -259,6 +259,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div>
   <div class="card feed" id="st_open"></div>
   <div class="card" id="st_res"></div>
+  <p class="ago" style="margin:-6px 4px 12px;white-space:normal">Fees are estimates of what the broker passes through with real money: no commission on stocks or options, small regulatory fees, clearing and exchange fees on options, 0.25% a side on crypto. Paper fills are not charged.</p>
   <div class="card tbl" id="st_by"></div>
   <div class="card feed" id="st_list"></div>
   <details class="card tbl"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Trades the bot passed on <span class="ago">7 days</span></summary><div id="rej" style="margin-top:10px"></div></details>
@@ -560,7 +561,7 @@ function tradeRow(t){
   const px = t.exit_price!=null
     ? `In <b>$${fmt(t.entry)}</b> at ${stamp(t.opened_at, !sameDay)} → out <b>$${fmt(t.exit_price)}</b> at ${stamp(t.closed_at, !sameDay)}${t.exit_session && t.exit_session!==t.session ? ' '+sessChip(t.exit_session,true) : ''}<br>Held ${hold(heldNow)} · ${why(t.exit_reason)}`
     : `In <b>$${fmt(t.entry)}</b> at ${stamp(t.opened_at, true)} · stop ${fmt(t.stop)} · target ${fmt(t.target)}${live && heldNow!=null ? `<br>Held ${hold(heldNow)} so far` : ''}`;
-  const res = t.pnl!=null ? `<span class="${cls(t.pnl)}">${money(t.pnl)}</span>${t.pnl_pct!=null?`<small class="${cls(t.pnl_pct)}">${signed(t.pnl_pct)}%</small>`:''}<small class="${cls(t.rr_realized)}">${t.rr_realized==null?'':signed(t.rr_realized)+'× risk'}</small>`
+  const res = t.pnl!=null ? `<span class="${cls(t.pnl)}">${money(t.pnl)}</span>${t.pnl_pct!=null?`<small class="${cls(t.pnl_pct)}">${signed(t.pnl_pct)}%</small>`:''}<small class="${cls(t.rr_realized)}">${t.rr_realized==null?'':signed(t.rr_realized)+'× risk'}</small>${t.fees!=null?`<small style="color:var(--dim)">fees ${feeText(t.fees)}</small>`:''}`
             : `<span class="chip st-${t.status}">${STATUS_WORD[t.status]||t.status}</span>`;
   const mode = MODE_WORD[t.mode] || (t.mode||'').toLowerCase();
   return `<div class="tr ${live?'live':wait?'wait':gone?'gone':''}">
@@ -1073,6 +1074,8 @@ const ST_FILTERS = [['strategy', 'Strategy', t => t.strategy, nice], ['symbol', 
   ['session', 'Session', t => t.session || 'closed', v => (SESSION[v] || [v])[0]], ['ended', 'How it ended', t => t.ended || '', v => WHY[v] || v], ['side', 'Side', t => t.side, v => v === 'buy' ? 'Buy (long)' : 'Short'],
   ['asset', 'Asset type', t => t.asset, v => v[0].toUpperCase() + v.slice(1)], ['account', 'Account', t => t.account, v => ({practice: 'Practice (paper)', 'real money': 'Real money', lab: 'Lab'})[v] || v]];
 const hold = m => m == null ? '—' : m < 60 ? Math.round(m) + 'm' : m < 1440 ? Math.floor(m / 60) + 'h ' + String(Math.round(m % 60)).padStart(2, '0') + 'm' : (m / 1440).toFixed(1) + 'd';
+// fees are fractions of a cent on small stock trades: show them honestly instead of as $0.00
+const feeText = f => f == null ? '—' : f === 0 ? '$0.00' : f < 0.005 ? 'under 1¢' : '$' + f.toFixed(2);
 function stSince(){
   const now = new Date();
   if (ST.win === '24h') return new Date(now - 864e5).toISOString();
@@ -1096,13 +1099,14 @@ function stSum(ts){
   const w = ts.filter(t => t.pnl > 0), l = ts.filter(t => t.pnl < 0), sum = a => a.reduce((x, t) => x + (t.pnl || 0), 0);
   const avg = (a, f) => { const v = a.map(f).filter(x => x != null); return v.length ? v.reduce((x, y) => x + y, 0) / v.length : null; };
   const gw = sum(w), gl = -sum(l);
-  return {n: ts.length, w: w.length, l: l.length, rate: ts.length ? w.length / ts.length : null, net: sum(ts),
+  const fees = ts.reduce((x, t) => x + (t.fees || 0), 0);
+  return {n: ts.length, w: w.length, l: l.length, rate: ts.length ? w.length / ts.length : null, net: sum(ts), fees, after: sum(ts) - fees,
     avgW: w.length ? gw / w.length : null, avgL: l.length ? -gl / l.length : null, pf: gl > 0 ? gw / gl : (gw > 0 ? Infinity : null),
     avgR: avg(ts, t => t.r), avgPct: avg(ts, t => t.pnl_pct), best: ts.length ? Math.max(...ts.map(t => t.pnl)) : null, worst: ts.length ? Math.min(...ts.map(t => t.pnl)) : null,
     holdW: avg(w, t => t.held_min), holdL: avg(l, t => t.held_min), hold: avg(ts, t => t.held_min)};
 }
 const ST_ROWS = [['Trades', s => s.n], ['Won', s => s.w], ['Lost', s => s.l], ['Win rate', s => s.rate == null ? '—' : Math.round(s.rate * 100) + '%'],
-  ['Net result', s => money(s.net), s => cls(s.net)], ['Average win', s => money(s.avgW), () => 'pos'], ['Average loss', s => money(s.avgL), () => 'neg'],
+  ['Net result', s => money(s.net), s => cls(s.net)], ['Est. fees', s => feeText(s.fees)], ['Net after fees', s => money(s.after), s => cls(s.after)], ['Average win', s => money(s.avgW), () => 'pos'], ['Average loss', s => money(s.avgL), () => 'neg'],
   ['Average return', s => s.avgPct == null ? '—' : signed(s.avgPct) + '%', s => cls(s.avgPct)], ['Average × risk', s => s.avgR == null ? '—' : signed(s.avgR) + '×', s => cls(s.avgR)],
   ['Profit factor', s => s.pf == null ? '—' : s.pf === Infinity ? 'no losses' : s.pf.toFixed(2)], ['Best trade', s => money(s.best), s => cls(s.best)], ['Worst trade', s => money(s.worst), s => cls(s.worst)],
   ['Average hold', s => hold(s.hold)], ['Hold on winners', s => hold(s.holdW)], ['Hold on losers', s => hold(s.holdL)]];

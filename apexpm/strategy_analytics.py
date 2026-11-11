@@ -320,4 +320,12 @@ def stats_trades(journal, limit: int = 20000) -> Dict[str, Any]:
             "greeks_entry": n.get("greeks_entry"), "greeks_exit": n.get("greeks_exit"), "vix_entry": n.get("vix_entry"), "vix_exit": n.get("vix_exit"),
             "desk": bool(n.get("ext")),
         })
+        try:   # estimated pass-through fees and the result after them (the journaled P&L is never changed)
+            from . import fees
+            f = fees.estimate(raw)
+            out[-1]["fees"] = round(f, 4)
+            out[-1]["net"] = round(float(t["pnl"]) - f, 4) if t.get("pnl") is not None else None
+        except Exception:  # noqa: BLE001
+            out[-1]["fees"] = None
+            out[-1]["net"] = out[-1]["pnl"]
     return {"n": len(out), "trades": out}
