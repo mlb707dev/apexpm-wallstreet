@@ -194,7 +194,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 39</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 40</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -262,6 +262,7 @@ button.btn,.back,.filters select{min-height:44px}
   <div class="card tbl" id="st_by"></div>
   <div class="card feed" id="st_list"></div>
   <details class="card tbl"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Trades the bot passed on <span class="ago">7 days</span></summary><div id="rej" style="margin-top:10px"></div></details>
+  <details class="card legend"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Legend <span class="ago">what the strategy names and short forms mean</span></summary><div class="legbody" style="margin-top:10px"></div></details>
 </section>
 <section id="analytics"><div id="decTop"></div><div class="card" id="master" style="position:relative"><h3>Master view</h3><div class="empty">Loading…</div></div><div id="ana"></div>
   <div id="stratmgmt">
@@ -269,6 +270,7 @@ button.btn,.back,.filters select{min-height:44px}
     <div class="card"><h3>Manage strategies <span class="ago">live · paper · shadow (lab + quarantine)</span></h3><div id="stratlist"></div></div>
     <div class="card tbl"><h3>Your past calls</h3><div id="decresolved"></div></div>
     <details class="card tbl"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Strategy events <span class="ago">promotions, suspensions, reviews</span></summary><div id="events" style="margin-top:10px"></div></details>
+  <details class="card legend"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Legend <span class="ago">what the strategy names and short forms mean</span></summary><div class="legbody" style="margin-top:10px"></div></details>
   </div>
 </section>
 <section id="reports"><div class="card tbl"><h3>Upcoming events <span class="ago">next 30 days</span></h3><div id="upcoming"></div></div><div id="weeklylist"></div><div id="reportlist"></div></section>
@@ -881,7 +883,7 @@ async function loadMaster(){
 async function loadAnalytics(){
   const el = $('#ana');
   if(el.dataset.open){ $('#master').style.display='none'; $('#stratmgmt').style.display='none'; $('#decTop').style.display='none'; return openStrat(el.dataset.open, true); }
-  $('#master').style.display=''; $('#stratmgmt').style.display=''; $('#decTop').style.display=''; loadMaster(); loadDecisions().catch(showErr);
+  $('#master').style.display=''; $('#stratmgmt').style.display=''; $('#decTop').style.display=''; loadMaster(); loadDecisions().catch(showErr); loadLegend();
   const [t, a] = await Promise.all([api('/api/strategy/analytics' + (ANA_DAYS?'?days='+ANA_DAYS:'')), api('/api/analytics')]);
   const scope = windowSeg();
   const tiers = t.tiers.map(tier=>{ const [h, sub, empty] = TIER_TEXT[tier.tier];
@@ -1152,7 +1154,17 @@ function drawStats(){
 function stWin(k){ ST.win = k; ST.show = 50; drawStats(); }
 function stBook(k){ ST.book = k; ST.show = 50; drawStats(); }
 function stFilter(k, v){ ST.f[k] = v; ST.show = 50; drawStats(); }
-async function loadStats(){ ST.data = await api('/api/stats'); drawStats();
+let LEGEND = null;
+async function loadLegend(){
+  try {
+    if (!LEGEND) LEGEND = await api('/api/glossary');
+    const g = LEGEND, row = (k, v) => `<div class="row" style="align-items:flex-start;gap:12px"><b style="flex:0 0 38%;white-space:normal">${k}</b><span style="white-space:normal;text-align:left;flex:1">${v}</span></div>`;
+    const html = (g.strategies.length ? `<p style="color:#fff;font-weight:600;margin-bottom:4px">Strategies</p>` + g.strategies.map(s => row(s.full, s.what || 'No description yet.')).join('') : '') +
+      (g.terms.length ? `<p style="color:#fff;font-weight:600;margin:12px 0 4px">Short forms</p>` + g.terms.map(t => row(t.term, t.what)).join('') : '');
+    document.querySelectorAll('.legbody').forEach(el => { el.innerHTML = html || '<div class="empty">No legend in this build.</div>'; });
+  } catch(e) {}
+}
+async function loadStats(){ ST.data = await api('/api/stats'); drawStats(); loadLegend();
   const rj = await api('/api/rejections');
   $('#rej').innerHTML = rj.length ? '<table><tr><th>Date</th><th>Strategy</th><th>Why it passed</th><th>Times</th></tr>' + rj.map(r=>`<tr><td>${whenDay(r.date)}</td><td>${nice(r.setup)}</td><td>${r.reason.replace(/_/g,' ')}</td><td>${r.n}</td></tr>`).join('') + '</table>' : '<div class="empty">No rejections in the last 7 days.</div>'; }
 async function loadAll(){ await loadHome(); }

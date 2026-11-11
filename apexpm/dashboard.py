@@ -468,6 +468,14 @@ class Api:
         from . import strategy_analytics as sa
         return sa.trades_for(self.j, name, mode=mode, limit=limit, days=days or None)
 
+    def glossary(self) -> Dict[str, Any]:
+        """Plain-English legend for strategy names and abbreviations (absent in a build without the private legend)."""
+        try:
+            from . import glossary
+        except ImportError:
+            return {"strategies": [], "terms": []}
+        return glossary.legend(self.reg.names())
+
     def stats(self) -> Dict[str, Any]:
         """Every trade in both books with its session, for the Stats tab (windows and slicing happen in the page)."""
         from . import strategy_analytics as sa
@@ -776,6 +784,11 @@ def make_handler(api: Api, token: str = ""):
                 from urllib.parse import parse_qs
                 d = parse_qs(urlparse(self.path).query).get("date", [""])[0]
                 return self._json(api.rejection_rows(d or et_date()))
+            if path == "/api/glossary":
+                try:
+                    return self._json(api.glossary())
+                except Exception as exc:  # noqa: BLE001
+                    return self._json({"error": str(exc)}, 500)
             if path == "/api/stats":
                 try:
                     return self._json(api.stats())
