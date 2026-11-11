@@ -129,8 +129,19 @@ def summarize(rows: List[dict]) -> Dict[str, Any]:
     }
 
 
+def _shadow_rows(journal, name: Optional[str] = None, status: Optional[str] = None) -> List[dict]:
+    """Simulated lab trades (apexpm.shadow), trade-shaped. They live in their own table and are read only here."""
+    try:
+        from . import shadow
+        return shadow.rows(journal, name=name, status=status)
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _closed_for(journal, name: str, since: Optional[str]) -> List[dict]:
     rows = [enrich(dict(r)) for r in journal.closed_trades(name) if r["pnl"] is not None]
+    rows += [enrich(r) for r in _shadow_rows(journal, name, "closed") if r["pnl"] is not None]
+    rows.sort(key=lambda r: r["closed_at"] or "")
     if since:
         rows = [r for r in rows if (r["closed_at"] or "") >= since]
     return rows
@@ -209,6 +220,9 @@ def trades_for(journal, name: str, mode: str = "", limit: int = 500, days: Optio
     """Every trade of one strategy, newest first, with the derived fields and its replay, for the drill-down."""
     since = _since(days)
     rows = [enrich(dict(r)) for r in journal.q("SELECT * FROM trades WHERE setup=? ORDER BY id DESC LIMIT ?", (name, int(limit)))]
+    sh = [enrich(r) for r in _shadow_rows(journal, name)]
+    if sh:   # simulated lab trades join the list, newest first; without them the order stays newest id first
+        rows = sorted(rows + sh, key=lambda r: r.get("closed_at") or r.get("opened_at") or "", reverse=True)[:int(limit)]
     try:
         from . import postmortem as pm
         revs = {r["trade_id"]: r["review"] for r in pm.reviews(journal, name)}
@@ -247,6 +261,7 @@ def master_trades(journal, days: Optional[int] = None, limit: int = 20000) -> Di
     switching the lens is instant. Source is tagged so other bots' journals can join the same view later."""
     since = _since(days)
     rows = [dict(r) for r in journal.q("SELECT * FROM trades WHERE status='closed' AND pnl IS NOT NULL ORDER BY closed_at DESC LIMIT ?", (int(limit),))]
+    rows += [r for r in _shadow_rows(journal, status="closed") if r["pnl"] is not None]
     if since:
         rows = [r for r in rows if (r.get("closed_at") or "") >= since]
     try:
@@ -282,6 +297,8 @@ def stats_trades(journal, limit: int = 20000) -> Dict[str, Any]:
     rows = [dict(r) for r in journal.q(
         "SELECT * FROM trades WHERE (status='closed' AND pnl IS NOT NULL) OR status IN ('open', 'pending') ORDER BY COALESCE(closed_at, opened_at) DESC LIMIT ?",
         (int(limit),))]
+    rows += _shadow_rows(journal)
+    rows.sort(key=lambda r: r.get("closed_at") or r.get("opened_at") or "", reverse=True)
     out = []
     for raw in rows:
         n = _notes(raw)

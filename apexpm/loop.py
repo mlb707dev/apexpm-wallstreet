@@ -502,6 +502,15 @@ class Bot:
              anchor=snap.levels.anchor, ribbon_ltf=snap.ribbon_ltf.state,
              ribbon_htf=snap.ribbon_htf.state, regime=snap.regime, signal=None)
         reject = lambda *a, **k: safe(self.journal.reject, *a, now=ts, **k)  # noqa: E731
+        # shadow book: simulated exits for lab trades run on every scan, before any entry gate (isolated table)
+        try:
+            from . import shadow
+            m = self._momentum.get(symbol) or {}
+            shadow.manage(self.journal, symbol, snap, self.cfg, now_utc=now_utc,
+                          flat_by_passed=riskmod.past_cutoff(now_et, self.cfg.flat_by),
+                          momentum={"long": bool(m.get("long")), "short": bool(m.get("short"))})
+        except Exception as exc:  # noqa: BLE001
+            self.log.warning("shadow exits failed for %s: %s", symbol, exc)
         if snap.minutes_since_open < 0:
             reject(symbol, "session", "premarket")
             return taken
@@ -547,6 +556,14 @@ class Bot:
             if observe_only:
                 reject(symbol, strat.name, "research_observed", sig.direction,
                        json.dumps({"entry": sig.entry, "stop": sig.stop, "target": sig.target, "conviction": conv.score}))
+                # shadow book: follow the lab signal to an exit in simulation (never an order, never a paper counter)
+                if conv.score >= strat.conviction_min(self.cfg):
+                    try:
+                        from . import shadow
+                        shadow.open_trade(self.journal, sig, snap, self.cfg, equity=self.state.equity, max_pos_pct=ecfg.max_pos_pct,
+                                          conviction=conv.score, now_utc=now_utc, session_date=today)
+                    except Exception as exc:  # noqa: BLE001
+                        self.log.warning("shadow entry failed for %s %s: %s", strat.name, symbol, exc)
                 continue
             conv_min = max(strat.conviction_min(self.cfg), banger.conviction_min if banger and banger.active else 0)
             if conv.score < conv_min:
@@ -843,6 +860,11 @@ class Bot:
             from .review import daily_review
             report = daily_review(self, today)
             self.journal.set_state("reviewed", today)
+            try:   # lab strategies that earned it on the shadow book get one proposal each; the owner promotes
+                from . import shadow
+                shadow.propose_ready(self.journal, self.registry)
+            except Exception as exc:  # noqa: BLE001
+                self.log.warning("shadow readiness failed: %s", exc)
             self.log.info("daily review done:\n%s", report)
         except Exception as exc:  # noqa: BLE001
             self.log.exception("daily review failed: %s", exc)

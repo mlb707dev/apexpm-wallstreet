@@ -194,7 +194,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 38</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 39</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -537,22 +537,35 @@ const SESSION = {rth:['Regular hours','Regular trading hours, 9:30 AM-4:00 PM Ne
 const sessChip = (k, small) => { if(!k) return ''; const [l,t] = SESSION[k]||[k,k]; return `<span class="chip s-${k}" title="${t}"${small?' style="font-size:9px;padding:2px 5px"':''}>${l}</span>`; };
 const isExt = t => t.desk || ['pre','ah','overnight'].includes(t.session);
 const STATUS_WORD = {open:'Open', pending:'Order working', closed:'Closed', cancelled:'Not filled'};
-const MODE_WORD = {PAPER:'paper', LIVE:'live money', DRY_RUN:'simulated', RESEARCH:'lab'};
+const MODE_WORD = {PAPER:'paper', LIVE:'live money', DRY_RUN:'simulated', SHADOW:'shadow (simulated)', RESEARCH:'lab'};
 const etDay = iso => { const d = new Date(iso); return isNaN(d) ? String(iso||'').slice(0,10) : d.toLocaleDateString('en-US',{timeZone:'America/New_York',weekday:'short',month:'short',day:'numeric'}); };
 const etTime = iso => { const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleTimeString('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit'}); };
+// option contract in plain words: SPY261113C00750000 -> "SPY 750C" plus its expiry
+function contractName(occ){
+  const m = /^([A-Z.]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/.exec(String(occ||'').split(' ').join(''));
+  if(!m) return occ ? {name:String(occ), exp:''} : null;
+  const strike = parseInt(m[6],10)/1000, d = new Date(Date.UTC(2000+ +m[2], +m[3]-1, +m[4], 12));
+  return {name:`${m[1]} ${Number.isInteger(strike)?strike:strike.toFixed(2)}${m[5]}`, exp:d.toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric'})};
+}
 function tradeRow(t){
   const live = t.status==='open', wait = t.status==='pending', gone = t.status==='cancelled';
   const side = SIDE[t.direction] || t.direction;
-  const px = t.exit_price!=null ? `${fmt(t.entry)} → ${fmt(t.exit_price)}` : `in at ${fmt(t.entry)} · stop ${fmt(t.stop)} · target ${fmt(t.target)}`;
-  const out = t.closed_at ? ` · ${why(t.exit_reason)} ${etTime(t.closed_at)}${t.exit_session && t.exit_session!==t.session ? ' '+sessChip(t.exit_session,true) : ''}${t.held_min!=null ? ' · held '+hold(t.held_min) : ''}` : '';
+  const c = contractName(t.contract);
+  // every trade says what was bought, the price and time in, the price and time out, and how long it was held
+  const sameDay = t.closed_at && etDay(t.opened_at) === etDay(t.closed_at);
+  const stamp = (iso, full) => full ? `${etDay(iso).split(', ').slice(1).join(', ')}, ${etTime(iso)}` : etTime(iso);
+  const heldNow = t.held_min!=null ? t.held_min : (live && t.opened_at ? (Date.now() - new Date(t.opened_at)) / 6e4 : null);
+  const px = t.exit_price!=null
+    ? `In <b>$${fmt(t.entry)}</b> at ${stamp(t.opened_at, !sameDay)} → out <b>$${fmt(t.exit_price)}</b> at ${stamp(t.closed_at, !sameDay)}${t.exit_session && t.exit_session!==t.session ? ' '+sessChip(t.exit_session,true) : ''}<br>Held ${hold(heldNow)} · ${why(t.exit_reason)}`
+    : `In <b>$${fmt(t.entry)}</b> at ${stamp(t.opened_at, true)} · stop ${fmt(t.stop)} · target ${fmt(t.target)}${live && heldNow!=null ? `<br>Held ${hold(heldNow)} so far` : ''}`;
   const res = t.pnl!=null ? `<span class="${cls(t.pnl)}">${money(t.pnl)}</span>${t.pnl_pct!=null?`<small class="${cls(t.pnl_pct)}">${signed(t.pnl_pct)}%</small>`:''}<small class="${cls(t.rr_realized)}">${t.rr_realized==null?'':signed(t.rr_realized)+'× risk'}</small>`
             : `<span class="chip st-${t.status}">${STATUS_WORD[t.status]||t.status}</span>`;
   const mode = MODE_WORD[t.mode] || (t.mode||'').toLowerCase();
   return `<div class="tr ${live?'live':wait?'wait':gone?'gone':''}">
     <div class="tm">${etTime(t.opened_at)}${sessChip(t.session)}</div>
-    <div><div class="what">${side} ${t.qty} <span class="sym">${t.symbol}</span></div>
-      <div class="sub">${nice(t.setup)}${t.desk?'<span class="chip t245" title="Overnight desk: pre-market, after-hours and 8 PM-4 AM, limit orders only">24/5</span>':''}${mode?` · ${mode}`:''}${t.contract?` · ${t.contract}`:''}</div>
-      <div class="px">${px}${out}</div>${greeks(t)}</div>
+    <div><div class="what">${side} ${t.qty} <span class="sym">${c ? c.name : t.symbol}</span>${c ? ` <span class="ago">${c.exp ? 'expires '+c.exp+' · ' : ''}option</span>` : ''}</div>
+      <div class="sub">${nice(t.setup)}${t.desk?'<span class="chip t245" title="Overnight desk: pre-market, after-hours and 8 PM-4 AM, limit orders only">24/5</span>':''}${mode?` · ${mode}`:''}</div>
+      <div class="px">${px}</div>${greeks(t)}</div>
     <div class="res">${res}${t.pnl!=null?`<span class="chip st-closed" style="font-size:9px">${STATUS_WORD[t.status]||t.status}</span>`:''}</div></div>`;
 }
 const GROUP_LABELS = {by_strategy:['By strategy','Strategy'], by_direction:['Buys vs. short sales','Side'], by_hour:['By time of day (New York)','Hour'], by_weekday:['By day of the week','Day'], by_exit:['How trades ended','Ending'], by_regime:['By market mood','Mood'], by_conviction:['By confirmations at entry','Confirmations'], by_asset_class:['Stocks, options, crypto','Type'], by_symbol:['By ticker','Ticker'], by_strategy_symbol:['Strategy and ticker','Pair'], by_entry_delta:['Options: delta when bought','Delta'], by_entry_iv:['Options: implied volatility when bought','IV'], by_entry_vix:['By market fear (VIX) at entry','VIX']};
@@ -894,7 +907,7 @@ async function openStrat(name, keep){
       <div><label>Ticker</label><select id="f_sym" onchange="drawDrill()">${opt(d.symbols)}</select></div>
       <div><label>Result</label><select id="f_res" onchange="drawDrill()"><option value="">All</option><option value="win">Winners</option><option value="loss">Losers</option><option value="open">Still open</option></select></div>
       <div><label>How it ended</label><select id="f_why" onchange="drawDrill()">${opt(d.exit_reasons, why)}</select></div>
-      <div><label>Account</label><select id="f_mode" onchange="drawDrill()">${opt(d.modes, m=>({PAPER:'Practice (paper)',LIVE:'Real money',DRY_RUN:'Lab (watch only)'})[m]||m)}</select></div>
+      <div><label>Account</label><select id="f_mode" onchange="drawDrill()">${opt(d.modes, m=>({PAPER:'Practice (paper)',LIVE:'Real money',DRY_RUN:'Lab (watch only)',SHADOW:'Shadow (simulated)'})[m]||m)}</select></div>
     </div>
     <div id="drill"></div>`;
   drawDrill();
@@ -1053,7 +1066,7 @@ document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click
 const ST = {data: null, win: '24h', book: 'live', f: {}, show: 50};
 const ST_WIN = [['24h', '24 hours'], ['5d', '5 days'], ['30d', '30 days'], ['all', 'All time']];
 const ST_BOOK = [['live', 'Live book'], ['shadow', 'Shadow book'], ['both', 'Both']];
-const ST_BOOK_TXT = {live: 'orders actually placed: paper now, real money later', shadow: 'the lab: watched and recorded, no orders', both: 'live and shadow side by side'};
+const ST_BOOK_TXT = {live: 'orders actually placed: paper now, real money later', shadow: 'the lab: every lab strategy trades in simulation, no orders', both: 'live and shadow side by side'};
 const ST_FILTERS = [['strategy', 'Strategy', t => t.strategy, nice], ['symbol', 'Ticker', t => t.symbol], ['result', 'Result', t => t.pnl > 0 ? 'win' : t.pnl < 0 ? 'loss' : 'flat', v => ({win: 'Winners', loss: 'Losers', flat: 'Flat'})[v]],
   ['session', 'Session', t => t.session || 'closed', v => (SESSION[v] || [v])[0]], ['ended', 'How it ended', t => t.ended || '', v => WHY[v] || v], ['side', 'Side', t => t.side, v => v === 'buy' ? 'Buy (long)' : 'Short'],
   ['asset', 'Asset type', t => t.asset, v => v[0].toUpperCase() + v.slice(1)], ['account', 'Account', t => t.account, v => ({practice: 'Practice (paper)', 'real money': 'Real money', lab: 'Lab'})[v] || v]];

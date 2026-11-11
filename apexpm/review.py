@@ -107,6 +107,11 @@ def daily_review(bot, date_iso: str = None) -> str:
     except Exception as exc:  # noqa: BLE001
         lines += ["", f"## Brain: failed ({exc})"]
     try:
+        from . import shadow
+        lines += ["", "## Shadow book (lab strategies, simulated)"] + shadow.lines(j, date_iso)
+    except Exception as exc:  # noqa: BLE001
+        lines += ["", f"## Shadow book: failed ({exc})"]
+    try:
         from . import warden
         lines += [""] + warden.warden_lines(warden.last(j))
     except Exception as exc:  # noqa: BLE001
