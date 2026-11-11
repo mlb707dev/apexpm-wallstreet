@@ -198,7 +198,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 48</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 49</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -1179,10 +1179,13 @@ async function loadScanner(){
   let d; try { d = await api('/api/scanner'); } catch (e) { return; }
   if (!d || !d.date || !(d.groups||[]).length) { el.style.display = 'none'; return; }
   const pct = v => v == null ? '' : `<span class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}%</span>`;
-  const row = h => `<div class="scanrow"><b>${h.symbol}</b>${h.price != null ? `<span>$${Number(h.price).toFixed(2)}</span>` : ''}${pct(h.change_pct)}${h.rvol != null ? `<span class="ago">vol ${Number(h.rvol).toFixed(1)}×</span>` : ''}${h.detail ? `<span class="ago scandet">${h.detail}</span>` : ''}</div>`;
+  const row = (h, g) => `<div class="scanrow"><b>${h.symbol}</b>${h.price != null ? `<span>$${Number(h.price).toFixed(2)}</span>` : ''}${pct(h.change_pct)}${h.rvol != null ? `<span class="ago">vol ${Number(h.rvol).toFixed(1)}×</span>` : ''}${d.live && h.since && !g.as_of ? `<span class="ago">since ${new Date(h.since).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})}</span>` : ''}${h.detail ? `<span class="ago scandet">${h.detail}</span>` : ''}</div>`;
   el.style.display = '';
-  el.innerHTML = `<h3>Scanner <span class="ago">session ${d.date}${d.universe ? ' · ' + d.universe + ' tickers' : ''} · daily, after the close</span></h3>` +
-    d.groups.map((g, i) => `<details class="scang"${i < 3 ? ' open' : ''}><summary><b>${g.label}</b> <span class="chip">${g.hits.length}</span> <span class="ago">${g.what}</span></summary>${g.hits.map(row).join('')}</details>`).join('');
+  const at = d.ran_at ? new Date(d.ran_at).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}) : '';
+  const state = d.live === 'session' ? `<span class="chip t245">live</span> as of ${at} · 15 min delayed · refreshes every 15 min`
+    : d.live === 'premarket' ? `<span class="chip t245">pre-market</span> as of ${at} · 15 min delayed` : 'final, after the close';
+  el.innerHTML = `<h3>Scanner <span class="ago" style="white-space:normal">session ${d.date}${d.universe ? ' · ' + d.universe + ' tickers' : ''} · ${state}</span></h3>` +
+    d.groups.map((g, i) => `<details class="scang"${i < 3 ? ' open' : ''}><summary><b>${g.label}</b> <span class="chip">${g.hits.length}</span> <span class="ago">${g.what}${g.as_of ? ' · from the ' + g.as_of + ' close' : ''}</span></summary>${g.hits.map(h => row(h, g)).join('')}</details>`).join('');
 }
 async function loadLegend(){
   try {
