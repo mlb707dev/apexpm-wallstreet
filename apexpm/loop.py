@@ -65,6 +65,21 @@ def snapshot_bar_fields(ltf) -> dict:
     return out
 
 
+
+def vix_last_and_change(h):
+    """(last, change vs the PREVIOUS SESSION'S CLOSE) from intraday ^VIX bars.
+
+    The old code used the first bar of the 2-day window, i.e. early yesterday, as "previous close":
+    on 2026-11-10 that showed 19.83 (-5.00) when the real change vs Nov 9's 19.92 close (Cboe) was -0.09."""
+    if h is None or len(h) == 0:
+        return None, None
+    closes = h["Close"] if "Close" in h else h["close"]
+    last = float(closes.iloc[-1])
+    days = [ts.date() for ts in closes.index]
+    today = days[-1]
+    prev = [float(c) for c, d in zip(closes, days) if d < today]
+    return last, (last - prev[-1]) if prev else None
+
 class Bot:
     def __init__(self, cfg: Config, journal: Optional[Journal] = None,
                  broker: Optional[Broker] = None, feed: Optional[DataFeed] = None):
@@ -388,10 +403,10 @@ class Bot:
             h = yf.Ticker("^VIX").history(period="2d", interval="5m")
             if h is None or h.empty:
                 return
-            last = float(h["close"].iloc[-1]) if "close" in h else float(h["Close"].iloc[-1])
-            closes = h["Close"] if "Close" in h else h["close"]
-            prev_day_close = float(closes.iloc[0])
-            safe(self.journal.set_state, "vix", json.dumps({"last": round(last, 2), "chg": round(last - prev_day_close, 2),
+            last, chg = vix_last_and_change(h)
+            if last is None:
+                return
+            safe(self.journal.set_state, "vix", json.dumps({"last": round(last, 2), "chg": round(chg, 2) if chg is not None else None,
                                                            "ts": now_utc.isoformat(timespec="seconds")}))
         except Exception as exc:  # noqa: BLE001
             self.log.warning("vix fetch failed: %s", exc)

@@ -130,6 +130,57 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
 .tr .m{color:var(--dim);margin-top:4px;line-height:1.5}
 .tr .m span{color:var(--text)}
 @media(min-width:700px){.sc .big{grid-template-columns:repeat(6,1fr)}.filters{grid-template-columns:repeat(4,1fr)}}
+/* ---- phone layout (owner, 2026-11-10): nothing may be wider than the screen; no overflow-x:hidden ---- */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+header{background:var(--bg);-webkit-backdrop-filter:none;backdrop-filter:none}
+.hbar{padding-left:calc(16px + env(safe-area-inset-left));padding-right:calc(16px + env(safe-area-inset-right))}
+.hbar h1,.hbar .chip{white-space:nowrap}
+.tabs{padding-left:calc(10px + env(safe-area-inset-left));padding-right:calc(10px + env(safe-area-inset-right));-webkit-overflow-scrolling:touch;scroll-behavior:smooth}
+.tabs button{min-height:44px}
+.tabs.fr{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 40px),transparent)}
+.tabs.fl{-webkit-mask-image:linear-gradient(to right,transparent,#000 40px);mask-image:linear-gradient(to right,transparent,#000 40px)}
+.tabs.fl.fr{-webkit-mask-image:linear-gradient(to right,transparent,#000 40px,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(to right,transparent,#000 40px,#000 calc(100% - 40px),transparent)}
+main{padding-left:calc(16px + env(safe-area-inset-left));padding-right:calc(16px + env(safe-area-inset-right))}
+#alerts{padding-left:calc(16px + env(safe-area-inset-left));padding-right:calc(16px + env(safe-area-inset-right))}
+#toast{bottom:calc(24px + env(safe-area-inset-bottom))!important}
+.grid>*,.mvgrid>*,.kv>*,.levels>*,.filters>*,.sc .big>*,.sc .ext>*,.tr>*{min-width:0}
+.grid{grid-template-columns:minmax(0,1fr)}
+.kv{grid-template-columns:repeat(3,minmax(0,1fr))}
+.kv div .v{overflow-wrap:anywhere}
+.levels{grid-template-columns:repeat(2,minmax(0,1fr))}
+.sc .big{grid-template-columns:repeat(3,minmax(0,1fr))}
+.sc .ext{grid-template-columns:repeat(2,minmax(0,1fr))}
+.filters{grid-template-columns:repeat(2,minmax(0,1fr))}
+.card h3,.sc .nm{flex-wrap:wrap}
+canvas,svg,img{max-width:100%}
+.seg{gap:1px;background:var(--line)}
+.seg button{min-height:44px;white-space:normal;line-height:1.2}
+button.btn,.back,.filters select{min-height:44px}
+@media(min-width:900px){.grid{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr)}}
+@media(min-width:700px){.sc .big{grid-template-columns:repeat(6,minmax(0,1fr))}.filters{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:600px){
+  .hbar{padding-top:calc(6px + env(safe-area-inset-top));padding-bottom:4px;gap:8px}
+  .hbar img{width:26px;height:26px}.hbar h1{font-size:13px;letter-spacing:.1em}
+  .hbar .chip{font-size:11px;padding:3px 6px}.heq{font-size:16px}
+  .tabs button{font-size:16px;padding:10px 12px}
+  .kv{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .kv div .k{font-size:12px}.kv div .v{font-size:clamp(16px,5.2vw,19px)}.kv div .v.sm{font-size:16px}
+  .seg{grid-template-columns:repeat(auto-fit,minmax(96px,1fr))!important}
+  .seg button{font-size:16px}
+  body,.card p,.banner,.alert,.empty,.row,.row .dim,.sc .desc,.trend,.tr,.tr .m,.tr .sub,.tr .px,.sc .ext div,.sc .more,pre,.feed{font-size:16px}
+  .card h3{font-size:16px}.sc .nm{font-size:17px}
+  .ago,.chip,.k,.sc .big .k,.sc .ext .k,.filters label,th,.tr .tm,.tr .res small,.sc .ext .d{font-size:13px}
+  input.inp,.filters select,select,button.btn,.back{font-size:16px}
+  .tbl{overflow-x:visible}
+  table.cardify,table.cardify tbody{display:block;width:100%}
+  table.cardify tr.hd{display:none}
+  table.cardify tr{display:block;background:var(--bg3);border:1px solid var(--line);border-radius:10px;padding:4px 12px;margin-bottom:8px}
+  table.cardify td{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border-bottom:1px solid var(--line);padding:8px 0;white-space:normal!important;text-align:right;font-size:15px;overflow-wrap:anywhere}
+  table.cardify td:last-child{border-bottom:0}
+  table.cardify td::before{content:attr(data-label);color:var(--dim);font-family:'DM Sans',sans-serif;font-size:13px;text-align:left;flex:0 0 auto;max-width:45%}
+}
+@media(max-width:600px){.chip,.tr .chip,.tr .sub .chip{font-size:13px!important}.kv div .k,.sc .big .k{font-size:13px}.feed .day,.feed .day span{font-size:13px!important}.tier p,p,.card p.empty{font-size:16px}summary{font-size:16px!important;min-height:44px;display:flex;align-items:center}}
+@media(max-width:350px){.hbar h1{display:none}}
 </style>
 </head>
 <body>
@@ -142,7 +193,7 @@ input.inp{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line)
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 33</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 34</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -298,7 +349,7 @@ function renderBot(b){
     const pol = 'size ×'+a.policy.size_mult + (a.policy.no_entry.length ? ' · no entries '+a.policy.no_entry.map(w=>w[0]+'–'+w[1]).join(', ') : '');
     return `<div class="alert ${a.severity}${a.flash?' flash':''}"><span>${a.big?'⚠ ':''}${a.label}${a.symbol?' ('+a.symbol+')':''} · ${a.date}</span><b>${when} · ${pol}</b></div>`;
   }).join('');
-  if (b.vix) { $('#t_vix').textContent = fmt(b.vix.last,2) + ' (' + (b.vix.chg>=0?'+':'') + fmt(b.vix.chg,2) + ')'; $('#t_vix').className = 'v sm ' + (b.vix.chg>0?'neg':'pos'); }
+  if (b.vix) { const c = b.vix.chg; $('#t_vix').textContent = fmt(b.vix.last,2) + (c==null ? '' : ' (' + (c>=0?'+':'') + fmt(c,2) + ')'); $('#t_vix').className = 'v sm ' + (c==null ? '' : c>0?'neg':'pos'); }
   const v = (b.volume||{})[Object.keys(b.volume||{})[0]] || {};
   $('#t_vol5').textContent = v.vs_avg5==null ? '—' : Math.round(v.vs_avg5*100)+'%';
   $('#t_vol30').textContent = v.vs_avg30==null ? '—' : Math.round(v.vs_avg30*100)+'%';
@@ -382,7 +433,7 @@ async function loadHome(){
   if(plan){
     PLAN = plan;
     const lv = plan.levels;
-    $('#t_atr').textContent = fmt(lv.atr) + ' (' + (lv.atr/lv.anchor*100).toFixed(2) + '%)';
+    $('#t_atr').textContent = plan.symbol + ' ' + fmt(lv.atr) + ' (' + (lv.atr/lv.anchor*100).toFixed(2) + '%)';
     renderPlan();
   }
   const st = await api('/api/settings');
@@ -989,6 +1040,26 @@ document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('section').forEach(s=>s.classList.remove('active')); $('#'+b.dataset.tab).classList.add('active');
   loaders[b.dataset.tab]().catch(showErr);
 });
+// ---- phone layout helpers: tables become label/value cards (CSS does it under 600px), the tab strip
+// fades at whichever edge has more tabs, and the chosen tab scrolls into view.
+function cardify(){
+  document.querySelectorAll('main table').forEach(t => {
+    const rows = [...t.rows]; if (!rows.length) return;
+    const hd = rows.find(r => r.querySelector('th')); if (!hd) return;
+    const labels = [...hd.cells].map(c => c.textContent.trim());
+    hd.classList.add('hd'); t.classList.add('cardify');
+    rows.forEach(r => { if (r !== hd) [...r.cells].forEach((c, i) => { if (labels[i] && c.dataset.label !== labels[i]) c.dataset.label = labels[i]; }); });
+  });
+}
+let _cardQ = false;
+new MutationObserver(() => { if (_cardQ) return; _cardQ = true; setTimeout(() => { _cardQ = false; cardify(); }, 0); })
+  .observe(document.querySelector('main'), {childList: true, subtree: true});
+function tabFade(){
+  const t = $('#tabs'); const max = t.scrollWidth - t.clientWidth;
+  t.classList.toggle('fl', t.scrollLeft > 4); t.classList.toggle('fr', t.scrollLeft < max - 4);
+}
+$('#tabs').addEventListener('scroll', tabFade, {passive: true}); window.addEventListener('resize', tabFade); tabFade();
+document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => { b.scrollIntoView({inline: 'center', block: 'nearest', behavior: 'smooth'}); setTimeout(tabFade, 400); }));
 async function loadAll(){ await loadHome(); }
 (async function boot(){
   const q = new URLSearchParams(location.search);

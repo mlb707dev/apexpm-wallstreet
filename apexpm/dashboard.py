@@ -560,9 +560,18 @@ class Api:
         return {"ok": True, "emailed": sent, "configured": not missing, "missing": missing, "report": report}
 
     def plan(self) -> Optional[Dict[str, Any]]:
-        r = self.j.q1("SELECT * FROM premarket_plans ORDER BY date DESC, id DESC LIMIT 1")
-        if not r:
+        # the headline row is the first configured symbol (SPY) on the latest plan date, never simply the
+        # last row written: that was XRP/USD and put its ATR on the Today card as SPY's (owner, 2026-11-10)
+        last = self.j.q1("SELECT date FROM premarket_plans ORDER BY date DESC LIMIT 1")
+        if not last:
             return None
+        r = None
+        for sym in list(getattr(self.cfg, "symbols", []) or []):
+            r = self.j.q1("SELECT * FROM premarket_plans WHERE date=? AND symbol=?", (last["date"], sym))
+            if r:
+                break
+        if not r:
+            r = self.j.q1("SELECT * FROM premarket_plans WHERE date=? ORDER BY symbol LIMIT 1", (last["date"],))
         d = dict(r)
         raw = json.loads(d.pop("levels_json"))
         if "day" in raw:
