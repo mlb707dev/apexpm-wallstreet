@@ -67,6 +67,11 @@ class Api:
         self.reg = Registry(journal, cfg)
         self.reg.register(ExampleBreakout(), "paper")
         variantsmod.register_all(self.reg, self.j)
+        try:   # daily market scanner and its swing lab (optional module)
+            from . import scanner
+            scanner.register(self.reg)
+        except ImportError:
+            pass
         cal.ensure_table(journal)
         self._news = NewsFeed(cfg, journal) if cfg.news_enabled else None
         self._broker = None
@@ -498,6 +503,14 @@ class Api:
             return {"strategies": [], "terms": []}
         return glossary.legend(self.reg.names())
 
+    def scanner(self) -> Dict[str, Any]:
+        """The latest market scan, grouped (absent in a build without the scanner)."""
+        try:
+            from . import scanner
+        except ImportError:
+            return {"date": None, "groups": []}
+        return scanner.latest(self.j)
+
     def stats(self) -> Dict[str, Any]:
         """Every trade in both books with its session, for the Stats tab (windows and slicing happen in the page)."""
         from . import strategy_analytics as sa
@@ -809,6 +822,11 @@ def make_handler(api: Api, token: str = ""):
             if path == "/api/glossary":
                 try:
                     return self._json(api.glossary())
+                except Exception as exc:  # noqa: BLE001
+                    return self._json({"error": str(exc)}, 500)
+            if path == "/api/scanner":
+                try:
+                    return self._json(api.scanner())
                 except Exception as exc:  # noqa: BLE001
                     return self._json({"error": str(exc)}, 500)
             if path == "/api/stats":

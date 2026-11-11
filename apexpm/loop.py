@@ -96,6 +96,11 @@ class Bot:
             chain = (lambda u, a, b: self.obroker.chain(u, a, b)) if self.obroker.connected else (lambda u, a, b: [])
             self.registry.register(OptionsWrapper(ExampleBreakout(), chain, min_dte=cfg.opt_min_dte, max_dte=cfg.opt_max_dte), "research")
         # extended-hours strategies (ext_sessions) register here and run on the overnight desk only
+        try:   # daily market scanner and its swing lab (optional module; lab only, never an order)
+            from . import scanner
+            scanner.register(self.registry)
+        except ImportError:
+            pass
         self.webhook: Optional[WebhookServer] = None
         self.news = NewsFeed(cfg, self.journal) if cfg.news_enabled else None
         self.state: Optional[riskmod.RiskState] = None
@@ -869,6 +874,14 @@ class Bot:
         except Exception as exc:  # noqa: BLE001
             self.log.exception("daily review failed: %s", exc)
 
+    def _maybe_market_scan(self) -> None:
+        """Once per completed session: the market scanner files its hits and moves its simulated swing trades along."""
+        try:
+            from . import scanner
+        except ImportError:
+            return
+        scanner.maybe_run(self)
+
     def _maybe_warden(self) -> None:
         """Every 30 minutes: the warden checks every harness role and repairs what it can."""
         from . import warden
@@ -1006,6 +1019,7 @@ class Bot:
                     safe(self.journal.set_state, "market", "open")
                 self._maybe_warden()
                 safe(self._maybe_ledger_sync)
+                safe(self._maybe_market_scan)
                 if self.cfg.overnight_enabled:
                     safe(self.overnight.tick)     # extended + overnight sessions (and its trades' exits in any session)
             except KeyboardInterrupt:

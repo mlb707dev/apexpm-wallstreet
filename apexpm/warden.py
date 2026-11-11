@@ -86,7 +86,7 @@ def duties(journal, registry, cfg, bot=None) -> List[Dict[str, Any]]:
             is_desk_strategy = lambda s: False  # noqa: E731
         entries = getattr(registry, "_entries", {})
         rth_names = [n for n in registry.names() if registry.status(n) != "retired"
-                     and not (n in entries and is_desk_strategy(entries[n].strategy))]
+                     and not (n in entries and (is_desk_strategy(entries[n].strategy) or getattr(entries[n].strategy, "daily", False)))]
         looked = lambda n: bool(journal.q1("SELECT 1 FROM rejections WHERE session_date=? AND setup=? LIMIT 1", (today, n)) or  # noqa: E731
                                 journal.q1("SELECT 1 FROM trades WHERE session_date=? AND setup=? LIMIT 1", (today, n)))
         seen = [n for n in rth_names if looked(n)]

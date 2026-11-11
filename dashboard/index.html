@@ -182,6 +182,9 @@ button.btn,.back,.filters select{min-height:44px}
 @media(max-width:600px){.chip,.tr .chip,.tr .sub .chip{font-size:13px!important}.kv div .k,.sc .big .k{font-size:13px}.feed .day,.feed .day span{font-size:13px!important}.tier p,p,.card p.empty{font-size:16px}summary{font-size:16px!important;min-height:44px;display:flex;align-items:center;flex-wrap:wrap;gap:2px 8px}}
 .cmp{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);font-size:14px}.cmp>div{padding:8px 4px;border-bottom:1px solid var(--line);min-width:0;overflow-wrap:anywhere}.cmp>div.h{color:var(--dim);font-size:13px;text-transform:uppercase;letter-spacing:.06em}.cmp>div.n{font-family:'JetBrains Mono',monospace;text-align:right;color:#fff}.trb{display:block!important}table.keep td{white-space:normal}@media(max-width:600px){.seg.tight{grid-template-columns:repeat(auto-fit,minmax(68px,1fr))!important}table.keep td{font-size:14px}.cmp{font-size:15px}}
 .legbody{margin:18px 4px 4px;padding-top:12px;border-top:1px solid var(--line);color:var(--dim)}.legbody h4{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:10px 0 6px}.legbody h4:first-child{margin-top:0}.leg{display:grid;grid-template-columns:minmax(0,1fr);gap:5px 24px;font-size:12px;line-height:1.45}.leg div{min-width:0;overflow-wrap:anywhere}.leg b{color:var(--text);font-weight:600;margin-right:4px}@media(min-width:800px){.leg{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.legbody .leg,.legbody .leg div{font-size:13px}}
+.scang{border-top:1px solid var(--line);padding:8px 0}.scang summary{cursor:pointer;font-size:13px;white-space:normal;line-height:1.5}
+.scanrow{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline;padding:6px 0 6px 14px;font-size:13px}.scanrow b{min-width:52px;color:#fff}
+.scandet{white-space:normal;flex:1 1 260px;min-width:0}
 @media(max-width:350px){.hbar h1{display:none}}
 </style>
 </head>
@@ -195,7 +198,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 47</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 48</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -266,7 +269,7 @@ button.btn,.back,.filters select{min-height:44px}
   <details class="card tbl"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Trades the bot passed on <span class="ago">7 days</span></summary><div id="rej" style="margin-top:10px"></div></details>
   <div class="legbody"></div>
 </section>
-<section id="analytics"><div id="decTop"></div><div class="card" id="master" style="position:relative"><h3>Master view</h3><div class="empty">Loading…</div></div><div id="ana"></div>
+<section id="analytics"><div id="decTop"></div><div class="card" id="master" style="position:relative"><h3>Master view</h3><div class="empty">Loading…</div></div><div class="card" id="scanner" style="display:none"></div><div id="ana"></div>
   <div id="stratmgmt">
     <div class="card" id="deccard"><h3>Needs your call <span class="ago">borderline cases the review will not decide alone</span></h3><div id="decpending"></div></div>
     <div class="card"><h3>Manage strategies <span class="ago">live · paper · shadow (lab + quarantine)</span></h3><div id="stratlist"></div></div>
@@ -885,7 +888,7 @@ async function loadMaster(){
 async function loadAnalytics(){
   const el = $('#ana');
   if(el.dataset.open){ $('#master').style.display='none'; $('#stratmgmt').style.display='none'; $('#decTop').style.display='none'; return openStrat(el.dataset.open, true); }
-  $('#master').style.display=''; $('#stratmgmt').style.display=''; $('#decTop').style.display=''; loadMaster(); loadDecisions().catch(showErr); loadLegend();
+  $('#master').style.display=''; $('#stratmgmt').style.display=''; $('#decTop').style.display=''; loadMaster(); loadScanner(); loadDecisions().catch(showErr); loadLegend();
   const [t, a] = await Promise.all([api('/api/strategy/analytics' + (ANA_DAYS?'?days='+ANA_DAYS:'')), api('/api/analytics')]);
   const scope = windowSeg();
   const tiers = t.tiers.map(tier=>{ const [h, sub, empty] = TIER_TEXT[tier.tier];
@@ -1171,6 +1174,16 @@ function stWin(k){ ST.win = k; ST.show = 50; drawStats(); }
 function stBook(k){ ST.book = k; ST.show = 50; drawStats(); }
 function stFilter(k, v){ ST.f[k] = v; ST.show = 50; drawStats(); }
 let LEGEND = null;
+async function loadScanner(){
+  const el = $('#scanner'); if (!el) return;
+  let d; try { d = await api('/api/scanner'); } catch (e) { return; }
+  if (!d || !d.date || !(d.groups||[]).length) { el.style.display = 'none'; return; }
+  const pct = v => v == null ? '' : `<span class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}%</span>`;
+  const row = h => `<div class="scanrow"><b>${h.symbol}</b>${h.price != null ? `<span>$${Number(h.price).toFixed(2)}</span>` : ''}${pct(h.change_pct)}${h.rvol != null ? `<span class="ago">vol ${Number(h.rvol).toFixed(1)}×</span>` : ''}${h.detail ? `<span class="ago scandet">${h.detail}</span>` : ''}</div>`;
+  el.style.display = '';
+  el.innerHTML = `<h3>Scanner <span class="ago">session ${d.date}${d.universe ? ' · ' + d.universe + ' tickers' : ''} · daily, after the close</span></h3>` +
+    d.groups.map((g, i) => `<details class="scang"${i < 3 ? ' open' : ''}><summary><b>${g.label}</b> <span class="chip">${g.hits.length}</span> <span class="ago">${g.what}</span></summary>${g.hits.map(row).join('')}</details>`).join('');
+}
 async function loadLegend(){
   try {
     if (!LEGEND) LEGEND = await api('/api/glossary');
