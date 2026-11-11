@@ -273,3 +273,28 @@ def master_trades(journal, days: Optional[int] = None, limit: int = 20000) -> Di
         })
     return {"since": since, "days": days or 0, "n": len(out), "trades": out,
             "sources": sorted({x["source"] for x in out}) or ["wallstreet"]}
+
+
+def stats_trades(journal, limit: int = 20000) -> Dict[str, Any]:
+    """Every trade (closed and still open) in every book for the Stats tab: plain facts per trade so the
+    page can window (24h / 5 trading days / 30 days / all time), split live vs shadow and slice instantly.
+    "Live book" = orders actually placed (paper now, real money later); "shadow book" = the lab."""
+    rows = [dict(r) for r in journal.q(
+        "SELECT * FROM trades WHERE (status='closed' AND pnl IS NOT NULL) OR status='open' ORDER BY COALESCE(closed_at, opened_at) DESC LIMIT ?",
+        (int(limit),))]
+    out = []
+    for raw in rows:
+        t = enrich(raw)
+        book = _book_of(t.get("mode"))
+        out.append({
+            "id": t["id"], "status": "open" if t.get("status") == "open" else "closed",
+            "book": "shadow" if book == "lab" else "live", "account": book,
+            "strategy": t["setup"], "symbol": t["symbol"], "asset": _asset_class(raw),
+            "side": "buy" if t["direction"] == "long" else "short", "qty": t.get("qty"),
+            "entry": t.get("entry"), "exit": t.get("exit_price"), "stop": t.get("stop"), "target": t.get("target"),
+            "opened_at": t.get("opened_at"), "closed_at": t.get("closed_at"), "held_min": t.get("held_min"),
+            "pnl": round(float(t["pnl"]), 2) if t.get("pnl") is not None else None, "pnl_pct": t.get("pnl_pct"),
+            "r": round(float(t["rr_realized"]), 3) if t.get("rr_realized") is not None else None,
+            "ended": t.get("exit_reason"), "cost": t.get("cost"),
+        })
+    return {"n": len(out), "trades": out}
