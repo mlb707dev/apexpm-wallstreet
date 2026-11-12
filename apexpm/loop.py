@@ -110,6 +110,9 @@ class Bot:
         self._today = ""
         self._day_ctx: Optional[cal.DayContext] = None
         self._momentum: Dict[str, bool] = {}
+        self._scan_extra: Dict[str, str] = {}      # scanner-sourced ticker -> the scan that flagged it (lab only)
+        self._extra_seen: Dict[str, float] = {}    # when each was last looked at
+        self._extra_skip: tuple = ("", set())      # (session date, tickers without usable bars today)
         self._exit_lock = threading.RLock()
         self.fast: Optional[FastLayer] = None
         self.overnight = OvernightDesk(self)
@@ -305,7 +308,7 @@ class Bot:
         if any(sl.values()):
             safe(self.journal.set_state, f"session_levels:{symbol}", json.dumps(sl))
         g = None
-        if self.cfg.gex_enabled and "/" not in symbol:
+        if self.cfg.gex_enabled and "/" not in symbol and symbol not in self._scan_extra:
             try:
                 from . import gex as gexmod
                 g = gexmod.refresh(self.journal, self.broker, getattr(self, "obroker", None), symbol, price)
@@ -391,7 +394,31 @@ class Bot:
                 self._scan_symbol(symbol, today, now_utc, now_et, shadow_only=True)
             except Exception as exc:  # noqa: BLE001
                 self.log.warning("%s shadow scan failed: %s", symbol, exc)
+        # tickers the market scanner flags: the same strategies, shadow book only, a few per pass
+        for symbol in self._scanner_lab_symbols(today):
+            try:
+                self._extra_seen[symbol] = time.time()
+                self._scan_symbol(symbol, today, now_utc, now_et, shadow_only=True)
+            except Exception as exc:  # noqa: BLE001
+                self.log.warning("%s scanner-lab scan failed: %s", symbol, exc)
         return taken
+
+    def _scanner_lab_symbols(self, today: str) -> List[str]:
+        """The scanner's current picks for the lab, least recently looked at first. Never ordered: these
+        only ever reach the shadow book. Empty in a build without the scanner."""
+        try:
+            from . import scanner
+            wl = scanner.lab_watchlist(self.journal, exclude=list(self.cfg.symbols) + list(self.cfg.crypto_symbols))
+        except ImportError:
+            return []
+        except Exception as exc:  # noqa: BLE001
+            self.log.warning("scanner lab list unavailable: %s", exc)
+            return []
+        if self._extra_skip[0] != today:
+            self._extra_skip = (today, set())
+        self._scan_extra = {s: v for s, v in wl.items() if s not in self._extra_skip[1]}
+        order = sorted(self._scan_extra, key=lambda s: self._extra_seen.get(s, 0.0))
+        return order[:scanner.LAB_PER_PASS]
 
     _vix_at: Optional[datetime] = None
 
@@ -498,6 +525,8 @@ class Bot:
                                positions_exception_on=positions_exception(self.journal))
         snap = self.snapshot(symbol, today, now_utc)
         if snap is None:
+            if symbol in self._scan_extra:
+                self._extra_skip[1].add(symbol)      # no usable bars for this one: stop asking until tomorrow
             return taken
         ts = now_utc.isoformat(timespec="seconds")
         safe(self.journal.set_state, "heartbeat", ts)
@@ -542,6 +571,8 @@ class Bot:
         for strat in active + observing:
             if is_desk_strategy(strat):
                 continue                      # extended-hours recipes run on the overnight desk only
+            if getattr(strat, "daily", False):
+                continue                      # daily-bar recipes run after the close, not in this loop
             observe_only = strat in observing
             why = strat.session_ok(snap, self.cfg)
             if why:
@@ -558,6 +589,8 @@ class Bot:
             sig.context["session"] = snap.session
             sig.context["conviction"] = conv.score
             sig.context["confirmations"] = conv.fired
+            if symbol in self._scan_extra:
+                sig.context["scanner"] = self._scan_extra[symbol]
             if observe_only:
                 reject(symbol, strat.name, "research_observed", sig.direction,
                        json.dumps({"entry": sig.entry, "stop": sig.stop, "target": sig.target, "conviction": conv.score}))

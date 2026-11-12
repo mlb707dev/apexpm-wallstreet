@@ -127,6 +127,8 @@ def open_trade(journal, sig, snap, cfg, *, equity: float, max_pos_pct: float, co
         return None
     notes = {"conviction": conviction, "session": (sig.context or {}).get("session"), "signal_entry": sig.entry,
              "atr": float(getattr(getattr(snap, "levels", None), "atr", 0.0) or 0.0)}
+    if (sig.context or {}).get("scanner"):
+        notes["scanner"] = sig.context["scanner"]       # sourced by the market scanner, outside the strategy's own tickers
     with journal.tx() as c:
         cur = c.execute(
             "INSERT INTO shadow_trades (strategy, symbol, asset, direction, qty, entry, initial_stop, stop, target, max_hold_min, "
@@ -253,9 +255,16 @@ def manage_desk(journal, cfg, price_of, *, now_utc: datetime, tradable=lambda sy
 
 
 # ---- readers: trade-shaped rows for the analytics (ids negative so they never collide with real trades) ----
-def rows(journal, *, name: Optional[str] = None, status: Optional[str] = None, limit: int = 20000) -> List[Dict[str, Any]]:
+SCANNER_TAG = '%"scanner"%'      # notes of a trade the market scanner sourced
+
+
+def rows(journal, *, name: Optional[str] = None, status: Optional[str] = None, limit: int = 20000,
+         scanner: Optional[bool] = None) -> List[Dict[str, Any]]:
+    """scanner: None = every trade, False = only the strategy's own tickers, True = only scanner-sourced tickers."""
     ensure(journal)
     q, args = "SELECT * FROM shadow_trades WHERE status != 'cancelled'", []
+    if scanner is not None:
+        q += " AND COALESCE(notes, '') LIKE ?" if scanner else " AND COALESCE(notes, '') NOT LIKE ?"; args.append(SCANNER_TAG)
     if name:
         q += " AND strategy=?"; args.append(name)
     if status:
@@ -289,7 +298,9 @@ def readiness(journal, registry) -> List[Dict[str, Any]]:
     for name in registry.names():
         if registry.status(name) != "research":
             continue
-        rs = [dict(r) for r in journal.q("SELECT * FROM shadow_trades WHERE strategy=? AND status='closed' AND pnl IS NOT NULL", (name,))]
+        # the bar is judged on the tickers the strategy would actually trade; scanner-sourced trades are a separate record
+        rs = [dict(r) for r in journal.q("SELECT * FROM shadow_trades WHERE strategy=? AND status='closed' AND pnl IS NOT NULL "
+                                         "AND COALESCE(notes, '') NOT LIKE ?", (name, SCANNER_TAG))]
         if not rs:
             continue
         s = _sum(rs)

@@ -509,7 +509,12 @@ class Api:
             from . import scanner
         except ImportError:
             return {"date": None, "groups": []}
-        return scanner.latest(self.j)
+        d = scanner.latest(self.j)
+        try:
+            d["lab"] = scanner.lab_report(self.j, exclude=list(self.cfg.symbols) + list(getattr(self.cfg, "crypto_symbols", [])))
+        except Exception:  # noqa: BLE001
+            d["lab"] = None
+        return d
 
     def stats(self) -> Dict[str, Any]:
         """Every trade in both books with its session, for the Stats tab (windows and slicing happen in the page)."""

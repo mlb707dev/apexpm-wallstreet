@@ -198,7 +198,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 49</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 50</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -1184,7 +1184,12 @@ async function loadScanner(){
   const at = d.ran_at ? new Date(d.ran_at).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}) : '';
   const state = d.live === 'session' ? `<span class="chip t245">live</span> as of ${at} · 15 min delayed · refreshes every 15 min`
     : d.live === 'premarket' ? `<span class="chip t245">pre-market</span> as of ${at} · 15 min delayed` : 'final, after the close';
-  el.innerHTML = `<h3>Scanner <span class="ago" style="white-space:normal">session ${d.date}${d.universe ? ' · ' + d.universe + ' tickers' : ''} · ${state}</span></h3>` +
+  const L = d.lab, money = v => (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(2);
+  const lab = !L || !L.max ? '' : `<details class="scang"${L.watching.length ? ' open' : ''}><summary><b>Lab is trading these</b> <span class="chip">${L.watching.length}</span> <span class="ago">simulated only, never an order · every lab strategy runs on up to ${L.max} flagged tickers</span></summary>` +
+    (L.watching.length ? `<div class="scanrow" style="flex-wrap:wrap">${L.watching.map(w => `<span><b>${w.symbol}</b> <span class="ago">${w.label}</span></span>`).join('')}</div>` : '<div class="scanrow"><span class="ago">Nothing picked yet. Picks start with the first scan of the day.</span></div>') +
+    (L.closed || L.open ? `<div class="scanrow"><span>${L.closed} closed, ${L.open} open</span><span class="${L.net >= 0 ? 'pos' : 'neg'}">${money(L.net)}</span><span class="ago">kept apart from each strategy's own record</span></div>` +
+      L.by_strategy.map(s => `<div class="scanrow"><b>${nice(s.strategy)}</b><span>${s.n} trade${s.n === 1 ? "" : "s"}</span><span>won ${Math.round(s.win * 100)}%</span>${s.avg_r != null ? `<span>${s.avg_r >= 0 ? '+' : ''}${s.avg_r.toFixed(2)}× risk</span>` : ''}<span class="${s.net >= 0 ? 'pos' : 'neg'}">${money(s.net)}</span></div>`).join('') : '') + '</details>';
+  el.innerHTML = `<h3>Scanner <span class="ago" style="white-space:normal">session ${d.date}${d.universe ? ' · ' + d.universe + ' tickers' : ''} · ${state}</span></h3>` + lab +
     d.groups.map((g, i) => `<details class="scang"${i < 3 ? ' open' : ''}><summary><b>${g.label}</b> <span class="chip">${g.hits.length}</span> <span class="ago">${g.what}${g.as_of ? ' · from the ' + g.as_of + ' close' : ''}</span></summary>${g.hits.map(h => row(h, g)).join('')}</details>`).join('');
 }
 async function loadLegend(){

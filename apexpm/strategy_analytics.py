@@ -129,18 +129,19 @@ def summarize(rows: List[dict]) -> Dict[str, Any]:
     }
 
 
-def _shadow_rows(journal, name: Optional[str] = None, status: Optional[str] = None) -> List[dict]:
+def _shadow_rows(journal, name: Optional[str] = None, status: Optional[str] = None, scanner: Optional[bool] = None) -> List[dict]:
     """Simulated lab trades (apexpm.shadow), trade-shaped. They live in their own table and are read only here."""
     try:
         from . import shadow
-        return shadow.rows(journal, name=name, status=status)
+        return shadow.rows(journal, name=name, status=status, scanner=scanner)
     except Exception:  # noqa: BLE001
         return []
 
 
 def _closed_for(journal, name: str, since: Optional[str]) -> List[dict]:
     rows = [enrich(dict(r)) for r in journal.closed_trades(name) if r["pnl"] is not None]
-    rows += [enrich(r) for r in _shadow_rows(journal, name, "closed") if r["pnl"] is not None]
+    # a strategy's record counts its own tickers only; trades on scanner-sourced tickers are reported with the scanner
+    rows += [enrich(r) for r in _shadow_rows(journal, name, "closed", scanner=False) if r["pnl"] is not None]
     rows.sort(key=lambda r: r["closed_at"] or "")
     if since:
         rows = [r for r in rows if (r["closed_at"] or "") >= since]
