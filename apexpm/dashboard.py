@@ -340,23 +340,48 @@ class Api:
         profiles.set_entries_paused(self.j, paused, f"dashboard: {note}" if note else "dashboard")
         return {"ok": True, "entries_paused": paused}
 
+    def _live_fields(self, t: dict) -> dict:
+        """What an open row needs to read on its own: the ticker's last price, where the trade stands, its session."""
+        px = self._last_price(t["symbol"])
+        sign = 1 if t["direction"] == "long" else -1
+        option = (t.get("asset") == "option") or bool(t.get("contract"))
+        waiting = t.get("status") == "pending"
+        # an option's entry is its premium; the last price on file is the underlying's, so the two are never subtracted
+        t["underlying_price"] = px if option else None
+        mark = None if (option or waiting) else px
+        t["last_price"] = None if option else px
+        t["unrealized_pnl"] = round((mark - t["entry"]) * sign * t["qty"], 2) if mark else None
+        t["unrealized_r"] = round((mark - t["entry"]) * sign / abs(t["entry"] - t["stop"]), 2) if mark and t["entry"] != t["stop"] else None
+        t["to_target"] = round((t["target"] - mark) * sign, 2) if mark and t.get("target") is not None else None
+        t["to_stop"] = round((mark - t["stop"]) * sign, 2) if mark and t.get("stop") is not None else None
+        try:
+            opened = datetime.fromisoformat(t["opened_at"])
+            t["held_min"] = None if waiting else int((datetime.now(timezone.utc) - opened).total_seconds() / 60)
+        except (ValueError, TypeError):
+            t["held_min"] = None
+        try:
+            n = json.loads(t.get("notes") or "{}")
+        except Exception:  # noqa: BLE001
+            n = {}
+        n = n if isinstance(n, dict) else {}
+        t["session"] = trade_session(t.get("opened_at"), t.get("symbol"))
+        t["desk"] = bool(n.get("ext"))
+        t["source"] = n.get("scanner")
+        t["daily"] = bool(n.get("swing"))
+        return t
+
     def positions(self) -> List[dict]:
-        out = []
-        for t in _rows(self.j.q("SELECT * FROM trades WHERE closed_at IS NULL ORDER BY opened_at")):
-            px = self._last_price(t["symbol"])
-            sign = 1 if t["direction"] == "long" else -1
-            t["last_price"] = px
-            t["unrealized_pnl"] = round((px - t["entry"]) * sign * t["qty"], 2) if px else None
-            t["unrealized_r"] = round((px - t["entry"]) * sign / abs(t["entry"] - t["stop"]), 2) if px and t["entry"] != t["stop"] else None
-            t["to_target"] = round((t["target"] - px) * sign, 2) if px else None
-            t["to_stop"] = round((px - t["stop"]) * sign, 2) if px else None
-            try:
-                opened = datetime.fromisoformat(t["opened_at"])
-                t["held_min"] = int((datetime.now(timezone.utc) - opened).total_seconds() / 60)
-            except ValueError:
-                t["held_min"] = None
-            out.append(t)
-        return out
+        return [self._live_fields(t) for t in _rows(self.j.q("SELECT * FROM trades WHERE closed_at IS NULL ORDER BY opened_at"))]
+
+    def lab_positions(self) -> List[dict]:
+        """Open and working simulated trades (the lab's shadow book), shaped like positions. Never orders."""
+        try:
+            from . import shadow
+            rows = shadow.rows(self.j, status="open") + shadow.rows(self.j, status="pending")
+        except Exception:  # noqa: BLE001
+            return []
+        rows.sort(key=lambda r: r.get("opened_at") or "", reverse=True)
+        return [self._live_fields(t) for t in rows]
 
     def trades(self, limit: int = 200) -> list:
         rows = _rows(self.j.q("SELECT * FROM trades ORDER BY id DESC LIMIT ?", (limit,)))
@@ -799,7 +824,7 @@ def make_handler(api: Api, token: str = ""):
                     return self._json({"error": "unauthorized"}, 401)
                 return self._send(401, LOGIN_HTML.encode(), "text/html; charset=utf-8")
             routes = {
-                "/api/overview": api.overview, "/api/bot": api.bot, "/api/positions": api.positions,
+                "/api/overview": api.overview, "/api/bot": api.bot, "/api/positions": api.positions, "/api/positions/lab": api.lab_positions,
                 "/api/trades": api.trades, "/api/strategies": api.strategies, "/api/analytics": api.analytics,
                 "/api/rejections": api.rejections, "/api/events": api.events, "/api/reports": api.reports, "/api/weekly": api.weekly_reports, "/api/readiness": api.readiness,
                 "/api/plan": api.plan, "/api/settings": api.settings, "/api/calendar": api.calendar,

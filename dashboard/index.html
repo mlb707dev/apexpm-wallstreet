@@ -198,7 +198,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 50</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 51</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -535,9 +535,10 @@ async function setProfile(name){
 
 async function loadPositions(){
   const ps = await api('/api/positions');
-  $('#poslist').innerHTML = `<h3>Open & pending <span class="ago">${ps.length} rows</span></h3>` + (ps.length ? '<table><tr><th>#</th><th>Status</th><th>Setup</th><th>Dir</th><th>Qty</th><th>Entry</th><th>Last</th><th>Unreal</th><th>R</th><th>To target</th><th>To stop</th><th>Held</th><th>Max hold</th></tr>' +
-    ps.map(t=>`<tr><td>${t.id}</td><td>${t.status}</td><td>${t.setup}${t.contract?'<br><span class="ago">'+t.contract+'</span>':''}</td><td>${t.direction}</td><td>${t.qty}</td><td>${fmt(t.entry)}</td><td>${fmt(t.last_price)}</td><td class="${cls(t.unrealized_pnl)}">${t.unrealized_pnl==null?'—':money(t.unrealized_pnl)}</td><td class="${cls(t.unrealized_r)}">${fmt(t.unrealized_r)}</td><td>${fmt(t.to_target)}</td><td>${fmt(t.to_stop)}</td><td>${t.held_min==null?'—':t.held_min+'m'}</td><td>${t.max_hold_min}m</td></tr>`).join('') + '</table>'
-    : '<div class="empty">No open or pending positions.</div>');
+  let lab = []; try { lab = await api('/api/positions/lab'); } catch (e) {}
+  const sec = (title, note, rows, empty) => `<h3>${title} <span class="ago" style="white-space:normal">${rows.length} · ${note}</span></h3>` + (rows.length ? rows.map(tradeRow).join('') : `<div class="empty">${empty}</div>`);
+  $('#poslist').innerHTML = sec('Open and working', 'the trading book · times in New York', ps, 'No open or pending positions.') +
+    `<div style="height:14px"></div>` + sec('Lab positions', 'simulated only, never an order · times in New York', lab, 'The lab has nothing open.');
 }
 
 const SESSION = {rth:['Regular hours','Regular trading hours, 9:30 AM-4:00 PM New York'], pre:['Pre-market','Pre-market, 4:00-9:30 AM New York, limit orders only'], ah:['After-hours','After-hours, 4:00-8:00 PM New York, limit orders only'], overnight:['☾ Overnight','Overnight session, 8:00 PM-4:00 AM New York (Blue Ocean ATS), limit orders only'], crypto:['Crypto 24/7','Crypto trades around the clock'], closed:['Market closed','Outside every session']};
@@ -564,14 +565,19 @@ function tradeRow(t){
   const heldNow = t.held_min!=null ? t.held_min : (live && t.opened_at ? (Date.now() - new Date(t.opened_at)) / 6e4 : null);
   const px = t.exit_price!=null
     ? `In <b>$${fmt(t.entry)}</b> at ${stamp(t.opened_at, !sameDay)} → out <b>$${fmt(t.exit_price)}</b> at ${stamp(t.closed_at, !sameDay)}${t.exit_session && t.exit_session!==t.session ? ' '+sessChip(t.exit_session,true) : ''}<br>Held ${hold(heldNow)} · ${why(t.exit_reason)}`
-    : `In <b>$${fmt(t.entry)}</b> at ${stamp(t.opened_at, true)} · stop ${fmt(t.stop)} · target ${fmt(t.target)}${live && heldNow!=null ? `<br>Held ${hold(heldNow)} so far` : ''}`;
+    : `${wait ? 'Order at' : 'In'} <b>$${fmt(t.entry)}</b> ${wait ? 'placed' : 'at'} ${stamp(t.opened_at, true)} · stop $${fmt(t.stop)} · target $${fmt(t.target)}` +
+      (t.last_price!=null ? `<br>Last <b>$${fmt(t.last_price)}</b>${t.to_target!=null ? ` · $${fmt(Math.abs(t.to_target))} ${t.to_target >= 0 ? 'to target' : 'past target'}` : ''}${t.to_stop!=null ? ` · $${fmt(Math.abs(t.to_stop))} ${t.to_stop >= 0 ? 'above the stop' : 'through the stop'}` : ''}` : '') +
+      (t.underlying_price!=null ? `<br>${t.symbol} last <b>$${fmt(t.underlying_price)}</b>` : '') +
+      (live && heldNow!=null ? `<br>Held ${hold(heldNow)} so far${t.max_hold_min && !t.daily ? ' · max ' + hold(t.max_hold_min) : ''}` : '') +
+      (wait && t.daily ? '<br>Fills at the next open' : '');
   const res = t.pnl!=null ? `<span class="${cls(t.pnl)}">${money(t.pnl)}</span>${t.pnl_pct!=null?`<small class="${cls(t.pnl_pct)}">${signed(t.pnl_pct)}%</small>`:''}<small class="${cls(t.rr_realized)}">${t.rr_realized==null?'':signed(t.rr_realized)+'× risk'}</small>${t.fees!=null?`<small style="color:var(--dim)">fees ${feeText(t.fees)}</small>`:''}`
-            : `<span class="chip st-${t.status}">${STATUS_WORD[t.status]||t.status}</span>`;
+            : (t.unrealized_pnl!=null ? `<span class="${cls(t.unrealized_pnl)}">${money(t.unrealized_pnl)}</span><small>unrealized${t.unrealized_r!=null ? ' · <span class="'+cls(t.unrealized_r)+'">'+signed(t.unrealized_r)+'× risk</span>' : ''}</small>` : '') +
+              `<span class="chip st-${t.status}">${STATUS_WORD[t.status]||t.status}</span>`;
   const mode = MODE_WORD[t.mode] || (t.mode||'').toLowerCase();
   return `<div class="tr ${live?'live':wait?'wait':gone?'gone':''}">
     <div class="tm">${etTime(t.opened_at)}${sessChip(t.session)}</div>
     <div><div class="what">${side} ${t.qty} <span class="sym">${c ? c.name : t.symbol}</span>${c ? ` <span class="ago">${c.exp ? 'expires '+c.exp+' · ' : ''}option</span>` : ''}</div>
-      <div class="sub">${nice(t.setup)}${t.desk?'<span class="chip t245" title="Overnight desk: pre-market, after-hours and 8 PM-4 AM, limit orders only">24/5</span>':''}${mode?` · ${mode}`:''}</div>
+      <div class="sub">${nice(t.setup)}${t.desk?'<span class="chip t245" title="Overnight desk: pre-market, after-hours and 8 PM-4 AM, limit orders only">24/5</span>':''}${mode?` · ${mode}`:''}${t.source?` · from the scanner`:''}</div>
       <div class="px">${px}</div>${greeks(t)}</div>
     <div class="res">${res}${t.pnl!=null?`<span class="chip st-closed" style="font-size:9px">${STATUS_WORD[t.status]||t.status}</span>`:''}</div></div>`;
 }
