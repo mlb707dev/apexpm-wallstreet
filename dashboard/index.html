@@ -198,7 +198,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 52</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 54</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -322,7 +322,8 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.style.display='bl
 async function api(p, opts={}){
   const base = LS.api; const headers = Object.assign({}, opts.headers||{});
   if (LS.tok) headers['Authorization'] = 'Bearer ' + LS.tok;
-  const r = await fetch(base + p, Object.assign({cache: 'no-store'}, opts, {headers}));
+  // 'no-cache' = always ask the bot, but let it answer "unchanged" without resending the data (never a stale copy)
+  const r = await fetch(base + p, Object.assign({cache: opts.method && opts.method !== 'GET' ? 'no-store' : 'no-cache'}, opts, {headers}));
   if (r.status === 401) { showLogin(); throw new Error('unauthorized'); }
   if (r.status === 404 && !LS.api) { showLogin(); throw new Error('unauthorized'); }
   if (!r.ok) throw new Error(p+' '+r.status + (r.status===404 ? ' (is the API address right?)' : ''));
@@ -1004,6 +1005,7 @@ async function loadSettings(){
       <p>Everything the bot has seen since launch lives in one journal file on the server: every trade, every signal it passed on, every daily report, every replay and lesson. Nothing is deleted when the account resets.</p>
       <div class="kv" style="margin-top:8px"><div><div class="k">Trades on record</div><div class="v sm">${c.trades??'—'}</div></div><div><div class="k">Signals passed on</div><div class="v sm">${c.rejections??'—'}</div></div><div><div class="k">Daily reports</div><div class="v sm">${c.daily_reports??'—'}</div></div><div><div class="k">Trades replayed</div><div class="v sm">${c.trade_reviews??'—'}</div></div><div><div class="k">Journal size</div><div class="v sm">${kb} KB</div></div><div><div class="k">First trade</div><div class="v sm">${j.first_trade_at?whenDay(j.first_trade_at):'—'}</div></div></div>
       <p style="margin-top:10px">Nightly, a verified copy is pulled off the server (compressed, with a rolling history) and refreshes one small folder of spreadsheet exports. Last copy pulled: <b>${d.last_backup_pulled_at?when(d.last_backup_pulled_at):'never yet'}</b>${d.last_backup_detail&&d.last_backup_detail.trades!=null?` (${d.last_backup_detail.trades} trades, integrity ${d.last_backup_detail.integrity}${d.last_backup_detail.disk_backups_bytes!=null?`, ${Math.round((d.last_backup_detail.disk_backups_bytes+(d.last_backup_detail.disk_exports_bytes||0))/1048576)} MB off the server`:''})`:''}.</p>
+      ${d.sent ? `<p style="margin-top:10px">Data sent by this dashboard and the nightly copy: <b>${(d.sent.today/1048576).toFixed(1)} MB</b> today, <b>${(d.sent.month/1048576).toFixed(1)} MB</b> this month (counted since Nov 13). The host includes 5 GB a month across everything the bot sends, including its calls to the broker, which are not in this figure.</p>` : ''}
       <div class="actions"><button class="btn ok" onclick="downloadBackup()">Download the full journal now</button></div>`;
   } catch(e) { $('#datacard').innerHTML = '<h3>Your data</h3><div class="empty">Could not load: '+e.message+'</div>'; }
 }
@@ -1227,7 +1229,8 @@ async function loadAll(){ await loadHome(); }
   // freezes a background page and shows it as it was; so refresh the moment the app is back in front, and
   // say plainly when what is on screen is older than two minutes instead of failing silently.
   let LAST_OK = Date.now();
-  const refresh = () => { const on=document.querySelector('#tabs button.on').dataset.tab;
+  const refresh = () => { if (document.hidden) return;   // a tab nobody is looking at asks for nothing; it refreshes the moment it is back in front
+    const on=document.querySelector('#tabs button.on').dataset.tab;
     loaders[on]().then(()=>{ LAST_OK = Date.now(); staleCheck(); }).catch(()=>staleCheck()); if (on !== 'overview') loadHarness().catch(()=>{}); };
   const staleCheck = () => { let el = $('#stale'); if (!el) { el = document.createElement('div'); el.id = 'stale'; el.className = 'banner warn';
       el.style.cssText = 'margin:10px auto 0;max-width:1100px'; $('#alerts').before(el); }

@@ -10,6 +10,8 @@ can call it with the bearer token. Secrets are never read or returned here.
 """
 from __future__ import annotations
 
+import gzip
+import hashlib
 import hmac
 import json
 import math
@@ -585,7 +587,12 @@ class Api:
             detail = json.loads(last_pull["detail"]) if last_pull else {}
         except Exception:  # noqa: BLE001
             detail = {}
-        return {"journal": h, "last_backup_pulled_at": last_pull["ts"] if last_pull else None, "last_backup_detail": detail,
+        SENT.flush(self.j)
+        sent = SentMeter.read(self.j)
+        month = et_date()[:7]
+        return {"sent": {"today": next((d["bytes"] for d in sent if d["date"] == et_date()), 0),
+                         "month": sum(d["bytes"] for d in sent if d["date"].startswith(month)), "days": sent[:14]},
+                "journal": h, "last_backup_pulled_at": last_pull["ts"] if last_pull else None, "last_backup_detail": detail,
                 "last_backup_served_at": last_served["ts"] if last_served else None}
 
     def harness_report(self, source: str, detail: dict) -> Dict[str, Any]:
@@ -761,19 +768,47 @@ def make_handler(api: Api, token: str = ""):
 
         def _cors(self) -> None:
             self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, If-None-Match")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
         def _send(self, code: int, body: bytes, ctype: str = "application/json", cache: str = "no-store") -> None:
+            """Every byte sent is metered by the host, so answers are as small as they can be without ever
+            being stale: an unchanged answer to a GET is a bodyless 304 (the browser keeps its copy but must
+            ask every time: "no-cache", never a blind reuse), and anything sizeable is compressed here."""
+            tag = None
+            if code == 200 and self.command == "GET" and len(body) >= 256:
+                tag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'
+                asked = [t.strip()[2:] if t.strip().startswith("W/") else t.strip() for t in (self.headers.get("If-None-Match") or "").split(",")]
+                if cache == "no-store":
+                    cache = "private, no-cache"
+                if tag in asked:
+                    self.send_response(304)
+                    self.send_header("ETag", tag)
+                    self.send_header("Cache-Control", cache)
+                    self.send_header("Vary", "Accept-Encoding, Authorization")
+                    self._cors()
+                    self.end_headers()
+                    SENT.add(api.j, 300)
+                    return
+            packed = False
+            if len(body) >= 512 and "gzip" in (self.headers.get("Accept-Encoding") or "").lower():
+                body, packed = gzip.compress(body, 5), True
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Cache-Control", cache)
+            if tag:
+                self.send_header("ETag", tag)
+                self.send_header("Vary", "Accept-Encoding, Authorization")
+            if packed:
+                self.send_header("Content-Encoding", "gzip")
+            self.send_header("Content-Length", str(len(body)))
             self._cors()
             if self._set_cookie:
                 self.send_header("Set-Cookie", self._set_cookie)
                 self._set_cookie = None
             self.end_headers()
             self.wfile.write(body)
+            SENT.add(api.j, len(body) + 400)        # body plus a typical header block
 
         def _json(self, obj: Any, code: int = 200) -> None:
             # Browsers reject Infinity/NaN in JSON (a strategy with wins and no losses has an infinite
@@ -836,14 +871,20 @@ def make_handler(api: Api, token: str = ""):
                     body = api.backup_bytes()
                 except Exception as exc:  # noqa: BLE001
                     return self._json({"error": str(exc)}, 500)
+                packed = "gzip" in (self.headers.get("Accept-Encoding") or "").lower()
+                if packed:      # the journal compresses about 7 to 1; the nightly copy asks for it that way
+                    body = gzip.compress(body, 6)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")
                 self.send_header("Content-Disposition", f'attachment; filename="apexpm-journal-{et_date()}.db"')
+                if packed:
+                    self.send_header("Content-Encoding", "gzip")
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Cache-Control", "no-store")
                 self._cors()
                 self.end_headers()
                 self.wfile.write(body)
+                SENT.add(api.j, len(body) + 400)
                 return None
             if path == "/api/rejections/rows":
                 from urllib.parse import parse_qs
@@ -933,6 +974,55 @@ def make_handler(api: Api, token: str = ""):
             return
 
     return Handler
+
+
+class SentMeter:
+    """Bytes this server has sent, per New York day (the host bills outbound data). Kept in memory and added
+    to the journal at most once a minute, so counting costs nothing per request and survives a restart."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._pending: Dict[str, List[int]] = {}
+        self._flushed = 0.0
+
+    def add(self, journal, n: int) -> None:
+        import time
+        with self._lock:
+            p = self._pending.setdefault(et_date(), [0, 0])
+            p[0] += int(n); p[1] += 1
+            if time.time() - self._flushed < 60:
+                return
+            self._flushed = time.time()
+            pending, self._pending = self._pending, {}
+        self._write(journal, pending)
+
+    def flush(self, journal) -> None:
+        with self._lock:
+            pending, self._pending = self._pending, {}
+        self._write(journal, pending)
+
+    @staticmethod
+    def _write(journal, pending: Dict[str, List[int]]) -> None:
+        for day, (b, n) in pending.items():
+            try:
+                old = json.loads(journal.get_state(f"sent:{day}") or "{}")
+                journal.set_state(f"sent:{day}", json.dumps({"bytes": int(old.get("bytes", 0)) + b, "requests": int(old.get("requests", 0)) + n}))
+            except Exception:  # noqa: BLE001
+                pass
+
+    @staticmethod
+    def read(journal, days: int = 31) -> List[Dict[str, Any]]:
+        out = []
+        for r in journal.q("SELECT key, value FROM state WHERE key LIKE 'sent:%' ORDER BY key DESC LIMIT ?", (int(days),)):
+            try:
+                v = json.loads(r["value"])
+                out.append({"date": r["key"][5:], "bytes": int(v.get("bytes", 0)), "requests": int(v.get("requests", 0))})
+            except Exception:  # noqa: BLE001
+                continue
+        return out
+
+
+SENT = SentMeter()
 
 
 def serve(cfg: Config, port: Optional[int] = None, block: bool = True,
