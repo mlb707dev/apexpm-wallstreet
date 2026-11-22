@@ -102,6 +102,11 @@ def daily_review(bot, date_iso: str = None) -> str:
     try:
         from . import brain, postmortem
         postmortem.backfill(j, getattr(bot, "feed", None), limit=200)
+        try:   # every loss taken apart on 1-minute bars before the brain counts the causes
+            from . import losslab
+            losslab.backfill(j, getattr(bot, "feed", None), limit=60)
+        except Exception as exc:  # noqa: BLE001
+            lines += ["", f"## Loss lab: failed ({exc})"]
         brain.think(j, reg, bot.cfg, data=None)
         lines += [""] + brain.brain_lines(j)
     except Exception as exc:  # noqa: BLE001

@@ -189,6 +189,14 @@ class Journal:
             c.execute("UPDATE trades SET status='open', entry=?, qty=?, fill_qty=?, broker_order_id=COALESCE(?, broker_order_id) "
                       "WHERE id=? AND status='pending'", (fill_price, fill_qty, fill_qty, order_id, trade_id))
 
+    def update_fill(self, trade_id: int, fill_price: float, fill_qty: float) -> bool:
+        """The entry order filled in pieces and the broker now reports more than was first recorded: the
+        journal takes the larger, cumulative quantity and its average price. Never shrinks a position."""
+        with self.tx() as c:
+            cur = c.execute("UPDATE trades SET entry=?, qty=?, fill_qty=? WHERE id=? AND status='open' AND COALESCE(fill_qty, qty, 0) < ? - 1e-9",
+                            (fill_price, fill_qty, fill_qty, trade_id, fill_qty))
+            return cur.rowcount > 0
+
     def patch_notes(self, trade_id: int, patch: dict) -> None:
         """Merge keys into the trade's notes JSON (greeks at entry/exit, VIX, etc.)."""
         t = self.get_trade(trade_id)

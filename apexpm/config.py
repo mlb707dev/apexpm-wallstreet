@@ -68,6 +68,12 @@ class Config:
     bar_minutes: int = field(default_factory=lambda: _i("BAR_MINUTES", 5))
     htf_bar_minutes: int = field(default_factory=lambda: _i("HTF_BAR_MINUTES", 15))
     no_entry_after: str = field(default_factory=lambda: _s("NO_ENTRY_AFTER", "15:30"))
+    # No orders in the first minutes after the bell (owner, 2026-11-13, after paper trade #23: bought TSLA 97 seconds
+    # after the open at the top of a one-minute spike, stopped the next minute). The ribbon is still built on
+    # pre-market bars and 1-minute ranges run several times wider. The lab keeps simulating these entries, so the
+    # journal keeps measuring whether the rule earns its keep. 0 turns it off. Strategies built for the open
+    # (trades_the_open = True) are exempt.
+    no_entry_first_min: int = field(default_factory=lambda: _i("NO_ENTRY_FIRST_MIN", 15))
     flat_by: str = field(default_factory=lambda: _s("FLAT_BY", "15:55"))
 
     # Levels and ribbon

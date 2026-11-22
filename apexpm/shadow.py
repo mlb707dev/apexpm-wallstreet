@@ -127,6 +127,8 @@ def open_trade(journal, sig, snap, cfg, *, equity: float, max_pos_pct: float, co
         return None
     notes = {"conviction": conviction, "session": (sig.context or {}).get("session"), "signal_entry": sig.entry,
              "atr": float(getattr(getattr(snap, "levels", None), "atr", 0.0) or 0.0)}
+    if (sig.context or {}).get("exit"):
+        notes["exit"] = dict(sig.context["exit"])       # this strategy's own exit settings (runner, trail, break-even)
     if (sig.context or {}).get("scanner"):
         notes["scanner"] = sig.context["scanner"]       # sourced by the market scanner, outside the strategy's own tickers
     with journal.tx() as c:
@@ -147,6 +149,25 @@ def _close(journal, t, price: float, reason: str, now_utc: datetime, cfg) -> Non
     with journal.tx() as c:
         c.execute("UPDATE shadow_trades SET status='closed', closed_at=?, exit_price=?, exit_reason=?, pnl=?, rr_realized=? WHERE id=?",
                   (_iso(now_utc), round(fill, 4), reason, round(pnl, 2), round(rr, 4) if rr is not None else None, t["id"]))
+
+
+class _ExitCfg:
+    """The shared settings with one trade's own exit settings laid over them."""
+
+    def __init__(self, cfg, over: dict):
+        self._c, self._o = cfg, over
+
+    def __getattr__(self, k):
+        o = object.__getattribute__(self, "_o")
+        return o[k] if k in o else getattr(object.__getattribute__(self, "_c"), k)
+
+
+def _exit_cfg(cfg, t):
+    try:
+        over = (json.loads(t["notes"] or "{}") or {}).get("exit")
+    except Exception:  # noqa: BLE001
+        over = None
+    return _ExitCfg(cfg, over) if isinstance(over, dict) and over else cfg
 
 
 def manage(journal, symbol: str, snap, cfg, *, now_utc: datetime, flat_by_passed: bool, momentum: Dict[str, bool]) -> List[int]:
@@ -175,7 +196,7 @@ def manage(journal, symbol: str, snap, cfg, *, now_utc: datetime, flat_by_passed
             lv_dir = sorted(lv.up.values()) if t["direction"] == "long" else sorted(lv.down.values(), reverse=True)
         plan = ExitPlan(t["direction"], t["entry"], t["initial_stop"], t["stop"], t["target"], atr, lv_dir,
                         runner=bool(t["runner"]), be_done=bool(t["be_done"]))
-        reason, px, changed = exit_update(plan, hi, lo, bool(momentum.get(t["direction"])), cfg)
+        reason, px, changed = exit_update(plan, hi, lo, bool(momentum.get(t["direction"])), _exit_cfg(cfg, t))
         if reason:
             _close(journal, t, float(px if px is not None else price), reason, now_utc, cfg); closed.append(t["id"])
         elif changed or plan.stop != t["stop"] or plan.target != t["target"]:

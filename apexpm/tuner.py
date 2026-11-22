@@ -71,8 +71,28 @@ def rule_for(base: str, overrides: Optional[dict] = None) -> dict:
     return SPLIT_RULES[rule_name(base, overrides)]
 
 
+_RULES_TAG: Optional[str] = None
+
+
+def rules_tag() -> str:
+    """The account-wide rules every regular-hours backtest runs under. Part of the cache key: when a rule changes
+    (2026-11-13: no orders in the first 15 minutes), results computed under the old rules are not reused."""
+    global _RULES_TAG
+    if _RULES_TAG is None:
+        try:
+            from .config import Config
+            n = int(Config().no_entry_first_min or 0)
+        except Exception:  # noqa: BLE001
+            n = 0
+        _RULES_TAG = f"first{n}" if n else ""
+    return _RULES_TAG
+
+
 def combo_key(base: str, overrides: dict) -> str:
-    s = json.dumps({"base": base, "o": overrides}, sort_keys=True, default=str)
+    d = {"base": base, "o": overrides}
+    if rules_tag() and not is_overnight(base):
+        d["rules"] = rules_tag()
+    s = json.dumps(d, sort_keys=True, default=str)
     return hashlib.sha1(s.encode()).hexdigest()[:12]
 
 

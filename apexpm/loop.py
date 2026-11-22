@@ -591,6 +591,9 @@ class Bot:
             sig.context["confirmations"] = conv.fired
             if symbol in self._scan_extra:
                 sig.context["scanner"] = self._scan_extra[symbol]
+            ex = {k: v for k, v in (getattr(strat, "overrides", None) or {}).items() if k.startswith("exit_")}
+            if ex and observe_only:
+                sig.context["exit"] = ex          # lab only: a variant may carry its own exit settings into the shadow book
             if observe_only:
                 reject(symbol, strat.name, "research_observed", sig.direction,
                        json.dumps({"entry": sig.entry, "stop": sig.stop, "target": sig.target, "conviction": conv.score}))
@@ -607,6 +610,12 @@ class Bot:
             if conv.score < conv_min:
                 reject(symbol, strat.name, f"low_conviction:{conv.score}" + (":banger" if banger and banger.active else ""),
                        sig.direction, json.dumps(conv.factors))
+                continue
+            first_min = int(getattr(self.cfg, "no_entry_first_min", 0) or 0)
+            if 0 <= snap.minutes_since_open < first_min and not getattr(strat, "trades_the_open", False):
+                reject(symbol, strat.name, "opening_minutes", sig.direction,
+                       json.dumps({"minutes_since_open": snap.minutes_since_open, "wait_min": first_min, "entry": sig.entry,
+                                   "stop": sig.stop, "target": sig.target, "conviction": conv.score}))
                 continue
             gates = riskmod.entry_gates(self.state, symbol=symbol, direction=sig.direction, now=now_utc,
                                         last_stop_iso=self.journal.last_stop_time(symbol, sig.direction), cfg=ecfg)
@@ -821,6 +830,14 @@ class Bot:
                         self.journal.cancel_trade(t["id"], f"broker_{ev['event']}")
                         if self.state:
                             self.state.open_symbols.discard(t["symbol"])
+                # An order can fill in pieces (2 shares, then 0.454). The first piece opened the trade; every later
+                # update carries the cumulative quantity, and the journal must follow it or the trade is recorded
+                # at a fraction of its real size (found 2026-11-22: journal 0.454 TSLA, broker 2.454).
+                if ev["filled_qty"] > 0 and ev["event"] in ("fill", "partial_fill"):
+                    for t in self.journal.open_trades():
+                        if t["broker_order_id"] == ev["order_id"] and not trade_is_desk(t, self.registry):
+                            if self.journal.update_fill(t["id"], ev["filled_avg_price"] or t["entry"], ev["filled_qty"]):
+                                self.log.info("trade #%d fill grew to %.4f @ %s", t["id"], ev["filled_qty"], ev["filled_avg_price"])
         except Exception as exc:  # noqa: BLE001
             self.log.exception("order update failed: %s", exc)
 
@@ -836,6 +853,7 @@ class Bot:
         if opened.tzinfo is None:
             opened = opened.replace(tzinfo=timezone.utc)
         held_min = (now_utc - opened).total_seconds() / 60
+        via = "tick" if price is not None else "loop"
         if price is None and self.fast:
             price = self.fast.prices.get(t["symbol"], 5)
         if price is None:
@@ -865,6 +883,13 @@ class Bot:
         exit_price = price
         exit_oid = None
         if t["mode"] != "DRY_RUN":
+            try:   # the result must be booked on what was actually bought: ask the broker once more before selling
+                st = self.broker.order_state(t["broker_order_id"]) if t["broker_order_id"] else None
+                if st and st.filled_qty > 0 and self.journal.update_fill(t["id"], st.filled_avg_price or t["entry"], st.filled_qty):
+                    self.log.warning("trade #%d: entry fill corrected to %.4f before the exit", t["id"], st.filled_qty)
+                    t = self.journal.get_trade(t["id"])
+            except Exception as exc:  # noqa: BLE001
+                self.log.warning("trade #%d: could not confirm the entry fill before the exit: %s", t["id"], exc)
             try:
                 exit_oid = self.broker.close_position(t["symbol"])
             except Exception as exc:  # noqa: BLE001
@@ -885,6 +910,16 @@ class Bot:
                 self.state.open_symbols.discard(t["symbol"])
                 self.state.realized_pnl_today = self.journal.realized_pnl_today(today)
             self.log.info("trade #%d closed %s @ %.2f", t["id"], reason, exit_price)
+            # how late the exit was: the price the bot acted on, how old that print was, and what it filled at.
+            # Journaled on every exit so the loss lab can say whether stop slippage is reaction lag or a fast tape.
+            try:
+                age = self.fast.prices.age(t["symbol"]) if self.fast else None
+                self.journal.patch_notes(t["id"], {"exit_decision": {
+                    "via": via, "price": round(float(price), 4) if price is not None else None,
+                    "tick_age_sec": round(float(age), 2) if age is not None else None,
+                    "stop": t["stop"], "fill": round(float(exit_price), 4), "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}})
+            except Exception as exc:  # noqa: BLE001
+                self.log.warning("exit decision not journaled for trade #%d: %s", t["id"], exc)
 
     def _maybe_daily_review(self) -> None:
         """Once per session date, after the close, run the review (auto-suspension + report)."""
@@ -914,6 +949,11 @@ class Bot:
         except ImportError:
             return
         scanner.maybe_run(self)
+        try:   # then vs now: today's daily indicator state against every past day that looked the same
+            from . import analogs
+            analogs.maybe_run(self)
+        except Exception as exc:  # noqa: BLE001
+            self.log.warning("then-vs-now outlook failed: %s", exc)
 
     def _maybe_warden(self) -> None:
         """Every 30 minutes: the warden checks every harness role and repairs what it can."""

@@ -96,6 +96,12 @@ def audit(journal, registry, cfg, days: Optional[int] = None) -> Dict[str, Any]:
         t = (v.get("evidence") or {}).get("pooled", {}).get("test", {})
         if t.get("exp") is not None:
             expected[v["name"]] = float(t["exp"])
+    try:   # the incumbents' own backtests (posted nightly by the tuner), so the recipes that trade are checked too
+        from . import coverage
+        for k, v in coverage.expected_r(journal).items():
+            expected.setdefault(k, v)
+    except Exception:  # noqa: BLE001
+        pass
     strategies = []
     proposals = []
     for name in registry.names():

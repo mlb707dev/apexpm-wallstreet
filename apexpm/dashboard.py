@@ -330,6 +330,12 @@ class Api:
         if not isinstance(specs, list) or not specs:
             return {"ok": False, "error": "no variants"}
         for s in specs:
+            if s.get("pin"):
+                # an experiment the owner asked for by name: lab only, runs beside the others, needs no backtest
+                # evidence because its whole purpose is to gather forward evidence. Only the owner source may pin.
+                if source != "owner":
+                    return {"ok": False, "error": "only an owner request may pin a variant"}
+                continue
             ev = (s.get("evidence") or {}).get("pooled") or {}
             if not all(k in ev for k in ("train", "val", "test")):
                 return {"ok": False, "error": "evidence missing: train/val/test pooled stats required"}
@@ -561,6 +567,24 @@ class Api:
         from . import brain as brainmod
         return {"lessons": brainmod.lessons(self.j), "hints": brainmod.hints(self.j)}
 
+    def loss_lab(self, days: int = 30, limit: int = 60) -> Dict[str, Any]:
+        """Recent losing trades, each taken apart (thesis, entry, stop, exit, other timeframes), with the diagnosis counts."""
+        from . import losslab
+        return losslab.recent(self.j, days=days, limit=limit)
+
+    def loss_review(self, trade_id: int) -> Dict[str, Any]:
+        """Take one losing trade apart now (the nightly pass does every loss; this is the on-demand button)."""
+        from . import losslab
+        from .data import DataFeed
+        t = losslab._find(self.j, trade_id)
+        if t is None or t.get("status") != "closed" or t.get("pnl") is None or float(t["pnl"]) >= 0:
+            return {"error": "not a closed losing trade"}
+        if getattr(self, "_lab_feed", None) is None:
+            self._lab_feed = DataFeed(self.cfg)
+        if not self._lab_feed.connected:
+            return {"error": "no market data connection"}
+        return {"id": trade_id, "review": losslab.review_trade(self.j, self._lab_feed, t)}
+
     def warden(self) -> Dict[str, Any]:
         from . import warden as wardenmod
         return {"last": wardenmod.last(self.j), "patrol_every_min": wardenmod.PATROL_EVERY_MIN}
@@ -598,10 +622,37 @@ class Api:
     def harness_report(self, source: str, detail: dict) -> Dict[str, Any]:
         """A harness job elsewhere (the nightly tuner) reports that it ran, so the warden can see it."""
         src = "".join(ch for ch in str(source) if ch.isalnum() or ch in "_-")[:32] or "harness"
+        stored = 0
+        if isinstance(detail, dict) and isinstance(detail.get("incumbents"), dict):
+            # the tuner's verdict on the recipes that are actually trading: kept in full, then checked against the books
+            from . import coverage
+            stored = coverage.store_incumbents(self.j, str(detail.get("date") or ""), detail["incumbents"], detail.get("symbols"))
+            try:
+                coverage.propose(self.j, self.reg)
+            except Exception:  # noqa: BLE001
+                pass
+            detail = {**detail, "incumbents": sorted(detail["incumbents"])}       # the event row keeps the names only
         with self.j.tx() as c:
             c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (datetime('now'), ?, 'ran', ?)",
                       (src, json.dumps(detail)[:4000]))
-        return {"ok": True, "source": src}
+        return {"ok": True, "source": src, "incumbents_stored": stored}
+
+    def outlook(self, refresh: bool = False) -> Dict[str, Any]:
+        """Then vs now: each symbol's daily indicator state today, the past days that matched, what followed."""
+        from . import analogs
+        if refresh:
+            from .data import DataFeed
+            if getattr(self, "_lab_feed", None) is None:
+                self._lab_feed = DataFeed(self.cfg)
+            if not self._lab_feed.connected:
+                return {"error": "no market data connection"}
+            return analogs.run(self.j, self._lab_feed, list(self.cfg.symbols))
+        return analogs.latest(self.j) or {"symbols": {}, "date": None}
+
+    def coverage(self) -> Dict[str, Any]:
+        """Backtest coverage: every registered pattern against the five-year backtest behind it."""
+        from . import coverage
+        return coverage.table(self.j, self.reg)
 
     def audit(self) -> Dict[str, Any]:
         """Auditor pass: book vs evidence, giveback, and any demotion proposals it files (owner decides)."""
@@ -639,7 +690,12 @@ class Api:
         sent = False
         if email:
             try:
-                sent = send_email(self.cfg, "ApexPM Wallstreet weekly letter (sent by hand)" + (" (new proposals inside)" if "proposes:" in report or "tuned version" in report else ""), report)
+                from .weekly import subject_for
+                row = self.j.q1("SELECT * FROM weekly_reports ORDER BY week_end DESC LIMIT 1") if not week_end else \
+                    self.j.q1("SELECT * FROM weekly_reports WHERE week_end<=? ORDER BY week_end DESC LIMIT 1", (week_end,))
+                subj = (subject_for(row["week_end"], row["trades"], row["wins"], row["realized_pnl"], row["starting_equity"], row["ending_equity"], report)
+                        if row else "ApexPM Wallstreet weekly letter")
+                sent = send_email(self.cfg, subj, report)
             except Exception as exc:  # noqa: BLE001
                 # names and the server address only; never the password or the addresses
                 return {"ok": True, "emailed": False, "error": type(exc).__name__, "error_text": str(exc)[:200],
@@ -864,7 +920,7 @@ def make_handler(api: Api, token: str = ""):
                 "/api/rejections": api.rejections, "/api/events": api.events, "/api/reports": api.reports, "/api/weekly": api.weekly_reports, "/api/readiness": api.readiness,
                 "/api/plan": api.plan, "/api/settings": api.settings, "/api/calendar": api.calendar,
                 "/api/decisions": api.decisions, "/api/news": api.news, "/api/variants": api.variants, "/api/audit": api.audit,
-                "/api/brain": api.brain, "/api/warden": api.warden, "/api/data": api.data_status, "/api/ledger": api.ledger,
+                "/api/brain": api.brain, "/api/warden": api.warden, "/api/coverage": api.coverage, "/api/data": api.data_status, "/api/ledger": api.ledger,
             }
             if path == "/api/backup":
                 try:
@@ -903,6 +959,22 @@ def make_handler(api: Api, token: str = ""):
             if path == "/api/stats":
                 try:
                     return self._json(api.stats())
+                except Exception as exc:  # noqa: BLE001
+                    return self._json({"error": str(exc)}, 500)
+            if path == "/api/outlook":
+                from urllib.parse import parse_qs
+                try:
+                    return self._json(api.outlook(refresh=parse_qs(urlparse(self.path).query).get("refresh", ["0"])[0] == "1"))
+                except Exception as exc:  # noqa: BLE001
+                    return self._json({"error": str(exc)}, 500)
+            if path in ("/api/losslab", "/api/losslab/run"):
+                from urllib.parse import parse_qs
+                qs = parse_qs(urlparse(self.path).query)
+                try:
+                    if path == "/api/losslab/run":
+                        return self._json(api.loss_review(int(qs.get("id", ["0"])[0])))
+                    return self._json(api.loss_lab(days=max(0, min(int(qs.get("days", ["30"])[0] or 30), 3650)),
+                                                   limit=max(1, min(int(qs.get("limit", ["60"])[0] or 60), 300))))
                 except Exception as exc:  # noqa: BLE001
                     return self._json({"error": str(exc)}, 500)
             if path in ("/api/strategy/analytics", "/api/strategy/trades", "/api/master"):

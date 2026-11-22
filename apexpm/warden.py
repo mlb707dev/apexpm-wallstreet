@@ -108,6 +108,20 @@ def duties(journal, registry, cfg, bot=None) -> List[Dict[str, Any]]:
     out.append({"name": "postmortems", "check": postmortems,
                 "repair": (lambda: pm.backfill(journal, feed, limit=200)) if feed is not None else None})
 
+    def loss_reviews():
+        try:
+            from . import losslab
+        except ImportError:
+            return True, "loss lab not installed"
+        day_old = (_now() - timedelta(hours=20)).isoformat(timespec="seconds")
+        p = [t for t in losslab.pending(journal, limit=500) if (t.get("closed_at") or "") <= day_old]
+        return not p, (f"{len(p)} losing trades not taken apart yet" if p else "every loss has been taken apart")
+
+    def loss_repair():
+        from . import losslab
+        return losslab.backfill(journal, feed, limit=40)
+    out.append({"name": "loss reviews", "check": loss_reviews, "repair": loss_repair if feed is not None else None})
+
     def brain_fresh():
         if pm is None:
             return True, "brain role not installed"

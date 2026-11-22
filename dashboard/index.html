@@ -198,7 +198,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 54</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 55</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -269,7 +269,7 @@ button.btn,.back,.filters select{min-height:44px}
   <details class="card tbl"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Trades the bot passed on <span class="ago">7 days</span></summary><div id="rej" style="margin-top:10px"></div></details>
   <div class="legbody"></div>
 </section>
-<section id="analytics"><div id="decTop"></div><div class="card" id="master" style="position:relative"><h3>Master view</h3><div class="empty">Loading…</div></div><div class="card" id="scanner" style="display:none"></div><div id="ana"></div>
+<section id="analytics"><div id="decTop"></div><div class="card" id="master" style="position:relative"><h3>Master view</h3><div class="empty">Loading…</div></div><div class="card" id="scanner" style="display:none"></div><div class="card" id="thennow"><h3>Then vs now</h3><div class="empty">Loading…</div></div><div class="card" id="coverage"><h3>Backtest coverage</h3><div class="empty">Loading…</div></div><div class="card" id="losslab"><h3>Loss lab</h3><div class="empty">Loading…</div></div><div id="ana"></div>
   <div id="stratmgmt">
     <div class="card" id="deccard"><h3>Needs your call <span class="ago">borderline cases the review will not decide alone</span></h3><div id="decpending"></div></div>
     <div class="card"><h3>Manage strategies <span class="ago">live · paper · shadow (lab + quarantine)</span></h3><div id="stratlist"></div></div>
@@ -392,7 +392,7 @@ function renderBot(b){
     <p style="margin-top:8px">Hard ceilings in config still apply on every profile.</p>`;
 }
 
-const DUTY = {'public repo clean':'Nothing private is on the public repo','journal healthy':'The journal file passes its integrity check','journal backed up':'A verified backup was pulled off the server','bot alive':'The bot is running','strategies scanned':'The strategies are scanning today\'s market','postmortems':'Every closed trade has been replayed','brain':'The brain has learned from the latest replays','auditor':'The auditor checked the book','daily review':'The daily report was written','weekly recap':'The weekly recap was written','nightly tuner':'The overnight tuning pass ran'};
+const DUTY = {'public repo clean':'Nothing private is on the public repo','journal healthy':'The journal file passes its integrity check','journal backed up':'A verified backup was pulled off the server','bot alive':'The bot is running','strategies scanned':'The strategies are scanning today\'s market','postmortems':'Every closed trade has been replayed','loss reviews':'Every recent loss has been taken apart in the loss lab','brain':'The brain has learned from the latest replays','auditor':'The auditor checked the book','daily review':'The daily report was written','weekly recap':'The weekly recap was written','nightly tuner':'The overnight tuning pass ran'};
 const tidyTimes = s => String(s||'').replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?(\+00:00|Z)?/g, m => when(/\+00:00|Z$/.test(m) ? m : m.replace(' ','T') + 'Z'));
 let HARNESS_OPEN = false;
 async function loadHarness(){
@@ -750,8 +750,12 @@ function mvHide(){ $('#mvtip').style.display = 'none'; }
 
 function drawQuadrant(groups, cs, width){
   const W = Math.max(300, Math.min(760, width || 640)), H = Math.round(Math.max(340, Math.min(440, W * 0.78))), L = 54, R = 12, T = 40, B = 40, iw = W - L - R, ih = H - T - B;
-  const ext = Math.max(0.5, ...groups.map(g => Math.abs(g.avg))) * 1.15;
-  const x = v => L + v * iw, y = v => T + (ext - v) / (2 * ext) * ih;
+  // the scale is set by groups with enough trades to mean something; a one-trade outlier is pinned at the edge
+  // (dashed, real value printed) instead of flattening everything else onto the zero line
+  const solid = groups.filter(g => g.n >= 5), scaleBy = solid.length ? solid : groups;
+  const ext = Math.max(0.5, ...scaleBy.map(g => Math.abs(g.avg))) * 1.15;
+  const off = g => Math.abs(g.avg) > ext;
+  const x = v => L + v * iw, y = v => T + (ext - Math.max(-ext, Math.min(ext, v))) / (2 * ext) * ih;
   const maxN = Math.max(1, ...groups.map(g => g.n));
   const rad = n => 6 + 22 * Math.sqrt(n / maxN);
   const s = svgEl('svg', {viewBox: `0 0 ${W} ${H}`, width: '100%', role: 'img', 'aria-label': 'Groups of trades by win rate and average result'});
@@ -782,6 +786,12 @@ function drawQuadrant(groups, cs, width){
     const fill = MV.color === 'result' ? (g.net > 0 ? MV_GAIN : g.net < 0 ? MV_LOSS : MV_FLAT) : cs.fill(g.ck || g.label);
     const c = svgEl('circle', {cx, cy, r, fill, 'fill-opacity': on ? 0.78 : 0.15, stroke: '#10162b', 'stroke-width': 2, style: 'cursor:pointer'});
     if (MV.sel === g.key) { c.setAttribute('stroke', '#ffffff'); c.setAttribute('stroke-width', 2.5); }
+    if (off(g)) {
+      c.setAttribute('stroke', '#c8d4f0'); c.setAttribute('stroke-dasharray', '3 3'); c.setAttribute('stroke-width', 1.5);
+      const up = g.avg > 0, right = cx < L + iw - 90;
+      s.appendChild(svgEl('text', {x: right ? cx + r + 4 : cx - r - 4, y: up ? cy + r + 12 : cy - r - 4, fill: '#c8d4f0', 'font-size': 10, 'text-anchor': right ? 'start' : 'end', 'pointer-events': 'none'},
+        `${up ? '▲' : '▼'} off scale: ${signed(g.avg)}× (${g.n} trade${g.n === 1 ? '' : 's'})`));
+    }
     const lines = [g.label + (g.ck && g.ck !== g.label ? ' · ' + g.ck : ''), `${g.n} trade${g.n === 1 ? '' : 's'} · won ${Math.round(g.win * 100)}% · hit target ${Math.round(g.hit * 100)}%`,
                    `average ${signed(g.avg)}× risk · net ${money(g.net)}`, `best ${money(g.best)} · worst ${money(g.worst)}` + (g.hold != null ? ` · held ${Math.round(g.hold)} min avg` : ''),
                    'Tap for its trades, and to light them up on the clock'];
@@ -874,7 +884,7 @@ function drawMaster(){
       <div><label>Account</label><select id="mv_book">${opt([['', 'All'], ['practice', 'Practice (paper)'], ['lab', 'Lab (watch only)'], ['real money', 'Real money']], MV.book)}</select></div>
       <div><label>Asset type</label><select id="mv_asset">${opt([['', 'All'], ['stocks', 'Stocks'], ['options', 'Options'], ['crypto', 'Crypto']], MV.asset)}</select></div>
     </div>
-    <p class="ago" style="margin:0 0 6px;white-space:normal">Each bubble is a group of trades: right = wins more often, up = bigger average result, size = number of trades. Hover for numbers, tap for the trades.</p>
+    <p class="ago" style="margin:0 0 6px;white-space:normal">Each bubble is a group of trades: right = wins more often, up = bigger average result, size = number of trades. A dashed bubble at the top or bottom edge is off the scale (too few trades to set it); its real value is printed beside it. Hover for numbers, tap for the trades.</p>
     <div class="mvgrid"><div id="mvq"></div><div id="mvc"></div></div>
     <p class="ago" style="margin-top:4px;white-space:normal">The clock: each dot is one trade, placed at the time it opened (New York time, noon at the top, midnight at the bottom). Farther out = better result; the dashed ring is break-even. Dot size = dollars at risk. Shaded: regular hours (blue), pre-market and after-hours (purple).</p>
     ${mvDetail(sel)}
@@ -892,10 +902,93 @@ async function loadMaster(){
   catch (e) { const el = $('#master'); if (el) el.innerHTML = '<h3>Master view</h3><div class="empty">Could not load: ' + e.message + '</div>'; }
 }
 
+// ---- loss lab: every losing trade taken apart (thesis, entry, stop, exit, other timeframes) ----
+const CAUSE = {wrong_idea:'Wrong idea', chased_entry:'Chased entry', stop_in_noise:'Stop inside noise', early_entry:'Entered early', stop_too_tight:'Stop too tight', exit_too_quick:'Exit too quick', normal_loss:'Normal loss'};
+const LAB_SKIP = {crypto_not_modelled:'Crypto trades are not taken apart yet.', overnight_desk_not_modelled:'Overnight desk trades are not taken apart yet (the replay covers them).', swing_not_modelled:'Multi-day swing trades are not taken apart yet.', outside_regular_hours:'Entered outside regular hours: not taken apart.', options_without_underlying_plan:'This option trade journaled no plan on the stock, so there is nothing to measure against.', none:'No 1-minute bars for this trade yet.', bars_mismatch:'The bars did not match this trade\'s price: skipped.'};
+let LAB = null, LAB_OPEN = {};
+const heldTxt = m => m==null ? '' : (m < 1 ? 'under a minute' : m < 60 ? (Math.round(m*10)/10)+' min' : (m/60).toFixed(1)+' h');
+function labBody(t){
+  const r = t.review;
+  if(!r) return `<div class="m">Not taken apart yet. The nightly pass does every loss. <button class="btn" style="margin-top:6px" onclick="runLossReview(${t.id}, this)">Take it apart now</button></div>`;
+  if(r.path !== 'ok') return `<div class="m">${LAB_SKIP[r.path] || 'Could not be taken apart (' + r.path + ').'}${r.thesis ? '<br><br><b style="color:#fff">The thesis</b><br>' + r.thesis.text : ''}</div>`;
+  const sec = (k, title) => { const xs = (r.findings||[]).filter(f=>f.k===k); return xs.length ? `<div style="margin-top:8px"><b style="color:#fff">${title}</b>${xs.map(f=>`<div style="margin-top:3px">${f.text}</div>`).join('')}</div>` : ''; };
+  const line = (a, b, v) => `<div style="display:flex;justify-content:space-between;gap:10px;margin-top:3px;font-family:'JetBrains Mono',monospace;font-size:12px"><span style="color:var(--dim)">${a}</span><b class="${cls(v)}" style="white-space:nowrap">${b}</b></div>`;
+  const tfs = (r.timeframes||[]).filter(f=>f.atr && f.r!=null);
+  const tfTbl = tfs.length ? `<div class="ago" style="margin-top:4px;white-space:normal">Same entry, stop one ATR of that chart away, same dollars at risk, run to the close:</div>` + tfs.map(f=>line(`${f.tf} · stop ${fmt(f.atr)} away → ${f.ended} at ${f.min} min`, `${signed(f.r)}× · ${money(f.usd)}`, f.r)).join('') : '';
+  const rm = (r.room||[]).filter(x=>x.r!=null);
+  const rmTbl = rm.length ? `<div class="ago" style="margin-top:4px;white-space:normal">Same entry, target and shares, wider stop (× the original risk):</div>` + rm.map(x=>line(`${x.x}× stop at ${fmt(x.stop)} → ${x.ended} at ${x.min} min`, `${signed(x.r)}× · ${money(x.usd)}`, x.r)).join('') : '';
+  return `<div class="m" style="white-space:normal">
+    <div style="border-left:3px solid var(--sky);padding-left:8px"><b style="color:#fff">${CAUSE[r.primary]||r.primary}.</b> ${r.lesson}</div>
+    <div style="margin-top:8px"><b style="color:#fff">The thesis</b> <span class="chip ${r.thesis.outcome==='right'?'paper':''}">${r.thesis.outcome}</span><div style="margin-top:3px">${r.thesis.text}</div></div>
+    ${sec('thesis','Was the idea right?')}${sec('entry','The entry')}${sec('stop','The stop')}${sec('exit','The exit: did it need room?')}${rmTbl}${sec('timeframes','Same trade, other timeframes')}${tfTbl}
+    <p class="ago" style="margin-top:8px;white-space:normal">Measured on 1-minute bars${r.basis==='underlying'?' of the stock (the option itself is not replayed)':''} from the entry to the close${r.complete?'':' (session still printing: will be redone)'}. “× risk” is a multiple of what this trade risked (${money(r.risk_usd)}).</p></div>`;
+}
+function drawLossLab(){
+  const el = $('#losslab'); if(!el || !LAB) return;
+  const chips = Object.entries(LAB.counts||{}).sort((a,b)=>b[1]-a[1]).map(([k,n])=>`<span class="chip">${CAUSE[k]||k} ${n}</span>`).join(' ');
+  const rows = LAB.trades.map(t=>{ const r = t.review; const tag = r && r.primary ? `<span class="chip">${CAUSE[r.primary]||r.primary}</span>` : `<span class="ago">${r ? 'skipped' : 'waiting'}</span>`;
+    return `<details class="tr" style="display:block" ${LAB_OPEN[t.id]?'open':''} ontoggle="LAB_OPEN[${t.id}]=this.open"><summary style="cursor:pointer;list-style:none"><div class="h"><span>${t.symbol} · ${SIDE[t.direction]||t.direction} · ${nice(t.strategy)} ${tag}</span><b class="neg">${money(t.pnl)}</b></div>
+      <div class="m">${when(t.closed_at)} · ${t.book}${t.r!=null?` · <span class="neg">${signed(t.r)}× risk</span>`:''}${r&&r.held_min!=null?` · held ${heldTxt(r.held_min)}`:''} · ${why(t.exit_reason)}</div></summary>${labBody(t)}</details>`; }).join('');
+  el.innerHTML = `<h3>Loss lab <span class="ago">every loss taken apart: thesis, entry, stop, exit, other timeframes · last ${LAB.days} days</span></h3>` +
+    (LAB.n ? `<p class="ago" style="white-space:normal;margin-bottom:8px">${LAB.n} losing trade${LAB.n===1?'':'s'}, ${LAB.reviewed} taken apart. ${chips}</p>${rows}` : '<div class="empty">No losing trades in this window.</div>');
+}
+// ---- then vs now: today's daily indicator state against every past day that looked the same ----
+const pc = v => v==null ? '—' : (v>0?'+':'') + (v*100).toFixed(2) + '%';
+const LEAN = {up:'Leans up', down:'Leans down', none:'No lean'};
+async function loadThenNow(refresh){
+  const el = $('#thennow'); if(!el) return;
+  try {
+    const d = await api('/api/outlook' + (refresh ? '?refresh=1' : ''));
+    if(d.error) throw new Error(d.error);
+    const syms = Object.entries(d.symbols||{});
+    const btn = `<button class="btn" style="margin-top:8px" onclick="this.disabled=true;this.textContent='Working…';loadThenNow(true)">Recompute now</button>`;
+    if(!syms.length){ el.innerHTML = `<h3>Then vs now</h3><div class="empty">Not computed yet. It runs after each close.</div>${btn}`; return; }
+    const rows = syms.map(([sym,o])=>{
+      if(!o.ok) return `<details class="tr" style="display:block"><summary style="cursor:pointer;list-style:none"><div class="h"><span>${sym}</span><span class="ago">not enough history</span></div></summary><div class="m">${o.why||''}</div></details>`;
+      const a = o.after||{}, a5 = a.next_5||{};
+      const row = (label, x) => `<div style="margin-top:5px"><span style="color:var(--dim)">${label} (${x.n} days)</span><div style="font-family:'JetBrains Mono',monospace;font-size:12px"><b>${Math.round((x.up||0)*100)}% up · avg <span class="${cls(x.mean)}">${pc(x.mean)}</span></b> · any day ${pc(x.base_mean)}</div></div>`;
+      return `<details class="tr" style="display:block"><summary style="cursor:pointer;list-style:none"><div class="h"><span>${sym} <span class="chip ${o.lean==='up'?'paper':''}">${LEAN[o.lean]||o.lean}</span></span><b>${fmt(o.close)}</b></div>
+        <div class="m">${a5.n||0} past days like today · next 5 sessions ${Math.round((a5.up||0)*100)}% up, avg <span class="${cls(a5.mean)}">${pc(a5.mean)}</span>${o.range_5?` · middle half ${fmt(o.range_5.low)}–${fmt(o.range_5.high)}`:''}</div></summary>
+        <div class="m" style="white-space:normal"><b style="color:#fff">Today (${o.date})</b><div style="margin-top:3px">${(o.state_words||[]).join('; ')}.</div>
+        <div class="ago" style="margin-top:3px;white-space:normal">RSI ${o.readings.rsi14} · ${o.readings.stretch_atr}× ATR from the 21-day EMA · 50-day ${fmt(o.readings.sma50)} · 200-day ${fmt(o.readings.sma200)}</div>
+        <div style="margin-top:8px"><b style="color:#fff">What followed days like this</b></div>${row('Tomorrow, close to close', a.next_day||{})}${row('Tomorrow, open to close', a.next_session||{})}${row('Next 5 sessions', a5)}
+        <div style="margin-top:8px">${o.read||''}</div>
+        <p class="ago" style="margin-top:6px;white-space:normal">Matched on ${o.matched_on.join(', ')}${o.dropped.length?` (dropped ${o.dropped.join(', ')} to reach ${a5.n} days)`:''}; history since ${o.since}. Last matches: ${(o.last_matches||[]).join(', ')||'none'}.</p></div></details>`; }).join('');
+    const e = d.edges||{};
+    const cand = (e.candidates||[]).map(c=>`<div style="margin-top:4px">${c.words.join('; ')}: ${c.n} days on ${c.symbols} symbols, ${pc(c.excess)} against an ordinary 5 sessions (train ${pc(c.splits.train.excess)}, validate ${pc(c.splits.val.excess)}, test ${pc(c.splits.test.excess)}).</div>`).join('');
+    const edge = e.tested ? `<p class="ago" style="margin-top:8px;white-space:normal"><b style="color:#fff">New strategy check.</b> ${e.tested} indicator states tested across all symbols on train, validate and test. ${e.candidates.length ? e.candidates.length + ' beat an ordinary day in all three:' : 'None beat an ordinary day in all three by more than chance, so no new strategy is warranted from these readings.'}</p>${cand}` : '';
+    el.innerHTML = `<h3>Then vs now <span class="ago">daily indicators today against every past day that looked the same · ${d.date||''}</span></h3>${rows}${edge}${btn}`;
+  } catch (e) { el.innerHTML = '<h3>Then vs now</h3><div class="empty">Could not load: ' + e.message + '</div>'; }
+}
+// ---- backtest coverage: every pattern against the five-year backtest behind it ----
+const COVFLAG = {no_backtest:'No backtest on record', fails_backtest:'Fails its backtest', unproven_symbols:'Trades unproven symbols', crypto_unproven:'Crypto never backtested'};
+async function loadCoverage(){
+  const el = $('#coverage'); if(!el) return;
+  try {
+    const d = await api('/api/coverage');
+    const rows = d.rows.map(r=>{ const e = r.evidence, s = e && e.splits;
+      const tag = r.flags.filter(f=>f!=='crypto_unproven').map(f=>`<span class="chip">${COVFLAG[f]||f}</span>`).join(' ') || (e ? '<span class="chip paper">Passes</span>' : '');
+      return `<details class="tr" style="display:block"><summary style="cursor:pointer;list-style:none"><div class="h"><span>${nice(r.name)} ${tag}</span><span class="ago">${r.status}</span></div>
+        <div class="m">${e ? `train ${signed(s.train.exp)}× · validate ${signed(s.val.exp)}× · test ${signed(s.test.exp)}× (${s.test.n} trades)` : 'nothing on record'}</div></summary>
+        <div class="m" style="white-space:normal">${e ? `Backtest of ${e.date} (${e.source}). Passed on: ${e.symbols_ok.join(', ')||'no symbol'}.${r.unproven.length?` Also trading: ${r.unproven.join(', ')}.`:''}${e.reasons.length?` Why it fails: ${e.reasons.join('; ')}.`:''}` : 'The nightly tuner has not reported a result for this recipe.'}${r.flags.includes('crypto_unproven')?' Trades crypto symbols, which have never been backtested.':''}</div></details>`; }).join('');
+    el.innerHTML = `<h3>Backtest coverage <span class="ago">every pattern against its five-year backtest</span></h3><p class="ago" style="white-space:normal;margin-bottom:8px">${d.with_evidence} of ${d.n} patterns have a backtest on record; ${d.passing} pass.${d.ordering_with_gaps.length?` Placing orders with a gap: ${d.ordering_with_gaps.map(nice).join(', ')}.`:''} ${d.note}</p>${rows}`;
+  } catch (e) { el.innerHTML = '<h3>Backtest coverage</h3><div class="empty">Could not load: ' + e.message + '</div>'; }
+}
+async function loadLossLab(){
+  try { LAB = await api('/api/losslab?days=30&limit=40'); drawLossLab(); }
+  catch (e) { const el = $('#losslab'); if (el) el.innerHTML = '<h3>Loss lab</h3><div class="empty">Could not load: ' + e.message + '</div>'; }
+}
+async function runLossReview(id, btn){
+  btn.disabled = true; btn.textContent = 'Working…';
+  try { const res = await api('/api/losslab/run?id=' + id); if(res.error) throw new Error(res.error);
+        const t = LAB.trades.find(x=>x.id===id); if(t){ t.review = res.review; LAB_OPEN[id] = true; } drawLossLab(); }
+  catch (e) { btn.disabled = false; btn.textContent = 'Could not: ' + e.message + ' (tap to retry)'; }
+}
+
 async function loadAnalytics(){
   const el = $('#ana');
-  if(el.dataset.open){ $('#master').style.display='none'; $('#stratmgmt').style.display='none'; $('#decTop').style.display='none'; return openStrat(el.dataset.open, true); }
-  $('#master').style.display=''; $('#stratmgmt').style.display=''; $('#decTop').style.display=''; loadMaster(); loadScanner(); loadDecisions().catch(showErr); loadLegend();
+  if(el.dataset.open){ $('#master').style.display='none'; $('#losslab').style.display='none'; $('#thennow').style.display='none'; $('#coverage').style.display='none'; $('#stratmgmt').style.display='none'; $('#decTop').style.display='none'; return openStrat(el.dataset.open, true); }
+  $('#master').style.display=''; $('#losslab').style.display=''; $('#thennow').style.display=''; $('#coverage').style.display=''; $('#stratmgmt').style.display=''; $('#decTop').style.display=''; loadMaster(); loadLossLab(); loadThenNow(); loadCoverage(); loadScanner(); loadDecisions().catch(showErr); loadLegend();
   const [t, a] = await Promise.all([api('/api/strategy/analytics' + (ANA_DAYS?'?days='+ANA_DAYS:'')), api('/api/analytics')]);
   const scope = windowSeg();
   const tiers = t.tiers.map(tier=>{ const [h, sub, empty] = TIER_TEXT[tier.tier];

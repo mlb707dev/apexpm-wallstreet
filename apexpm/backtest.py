@@ -352,6 +352,11 @@ class Backtester:
                     if why and why != "not_at_entry_level":
                         rej(why)
                     continue
+                # same rule as the live loop: no orders in the first minutes after the bell
+                if (0 <= snap.minutes_since_open < int(getattr(cfg, "no_entry_first_min", 0) or 0)
+                        and not getattr(self.strategy, "trades_the_open", False)):
+                    rej("opening_minutes")
+                    continue
                 cmin = self.strategy.conviction_min(cfg)
                 if cmin > 0:
                     lo_i = max(0, gi - 80)

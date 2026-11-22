@@ -33,6 +33,9 @@ def ensure(journal: Journal) -> None:
         c.executescript(SCHEMA)
 
 
+PIN_NOTE = "owner experiment:"     # note prefix of a variant the owner asked for; the tuner leaves it alone
+
+
 def rows(journal: Journal, active_only: bool = True) -> List[dict]:
     ensure(journal)
     sql = "SELECT * FROM variants" + (" WHERE replaced_by IS NULL" if active_only else "") + " ORDER BY created_at"
@@ -99,9 +102,10 @@ def submit(registry, journal: Journal, specs: List[dict], source: str = "tuner")
         if same:
             skipped.append(f"{base}: identical variant {same[0]['name']} already active")
             continue
-        # retire the previous unpromoted challenger of this base
+        # retire the previous unpromoted challenger of this base; an owner experiment ("pin") runs alongside
+        # everything else, retires nothing, and is never retired by a later tuner submission
         for r in rows(journal):
-            if r["base"] != base:
+            if r["base"] != base or spec.get("pin") or str(r.get("note") or "").startswith(PIN_NOTE):
                 continue
             st = registry.status(r["name"]) if r["name"] in registry._entries else "research"
             if st in ("paper", "live"):
@@ -116,7 +120,8 @@ def submit(registry, journal: Journal, specs: List[dict], source: str = "tuner")
         with journal.tx() as c:
             c.execute("INSERT INTO variants (name, base, overrides, symbols, evidence, created_at, note) VALUES (?,?,?,?,?,?,?)",
                       (name, base, json.dumps(ov), json.dumps(list(spec.get("symbols") or [])),
-                       json.dumps(spec.get("evidence") or {}), utcnow(), spec.get("note") or source))
+                       json.dumps(spec.get("evidence") or {}), utcnow(),
+                       (PIN_NOTE + " " + str(spec.get("note") or source)) if spec.get("pin") else (spec.get("note") or source)))
             c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (?,?,?,?)",
                       (utcnow(), name, "variant_proposed", f"{source}: {base} " + json.dumps(ov)))
         row = [r for r in rows(journal) if r["name"] == name][0]
