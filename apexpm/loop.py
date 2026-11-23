@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from types import SimpleNamespace
 
 import pandas as pd
 from datetime import datetime, timedelta, timezone
@@ -95,6 +96,11 @@ class Bot:
         if cfg.options_enabled:
             chain = (lambda u, a, b: self.obroker.chain(u, a, b)) if self.obroker.connected else (lambda u, a, b: [])
             self.registry.register(OptionsWrapper(ExampleBreakout(), chain, min_dte=cfg.opt_min_dte, max_dte=cfg.opt_max_dte), "research")
+        try:   # optional private module (absent in this build)
+            from . import vehicles
+            vehicles.register(self.registry, self._vehicle_price)
+        except ImportError:
+            pass
         # extended-hours strategies (ext_sessions) register here and run on the overnight desk only
         try:   # daily market scanner and its swing lab (optional module; lab only, never an order)
             from . import scanner
@@ -401,7 +407,41 @@ class Bot:
                 self._scan_symbol(symbol, today, now_utc, now_et, shadow_only=True)
             except Exception as exc:  # noqa: BLE001
                 self.log.warning("%s scanner-lab scan failed: %s", symbol, exc)
+        self._manage_unscanned(now_utc, now_et, set(self.cfg.symbols) | set(self.cfg.crypto_symbols) | set(self._scan_extra))
         return taken
+
+    def _vehicle_price(self, symbol: str) -> Optional[float]:
+        """Last price of an instrument that is traded but not scanned."""
+        px = (self.fast.prices.get(symbol, 5) if self.fast else None) or self.feed.last_price(symbol, self.cfg.max_price_age_sec)
+        if not px:      # a quiet instrument can go minutes between prints on this tape; its quote is always current
+            try:
+                bid, ask = self.feed.ext_quote(symbol, "rth")
+                px = (bid + ask) / 2 if bid and ask and (ask - bid) / ask < 0.01 else None
+            except Exception:  # noqa: BLE001
+                px = None
+        return float(px) if px else None
+
+    def _manage_unscanned(self, now_utc: datetime, now_et: datetime, scanned) -> None:
+        """Simulated trades on an instrument the scan does not visit still need their exits run."""
+        try:
+            from . import shadow
+            shadow.ensure(self.journal)
+            syms = [r["symbol"] for r in self.journal.q("SELECT DISTINCT symbol FROM shadow_trades WHERE status='open' AND desk=0")]
+        except Exception:  # noqa: BLE001
+            return
+        for sym in syms:
+            if sym in scanned:
+                continue
+            try:
+                px = self._vehicle_price(sym)
+                if px is None:
+                    continue
+                safe(self.journal.set_state, f"last_price:{sym}", str(px))
+                view = SimpleNamespace(price=px, bar_high=px, bar_low=px, levels=None)
+                shadow.manage(self.journal, sym, view, self.cfg, now_utc=now_utc,
+                              flat_by_passed=riskmod.past_cutoff(now_et, self.cfg.flat_by), momentum={})
+            except Exception as exc:  # noqa: BLE001
+                self.log.warning("%s unscanned exit pass failed: %s", sym, exc)
 
     def _scanner_lab_symbols(self, today: str) -> List[str]:
         """The scanner's current picks for the lab, least recently looked at first. Never ordered: these
@@ -584,9 +624,20 @@ class Bot:
                     reject(symbol, strat.name, why)
                 continue
             # conviction gate: several independent confirmations or no trade (journaled either way)
-            conv = conviction_score(sig.direction, snap, snap.ltf_closes)
+            veh = sig.context.get("vehicle")
+            conv = conviction_score(sig.context.get("signal_direction", sig.direction), snap, snap.ltf_closes)
             # (private live-only overlays may adjust the read here; not part of the public build)
             sig.context["session"] = snap.session
+            # A signal may be taken through another instrument than the one scanned: from here on, prices, sizes
+            # and gates are the traded instrument's.
+            tsym, tsnap = sig.symbol, snap
+            if veh:
+                tsnap = SimpleNamespace(symbol=tsym, price=float(sig.context["fill_price"]), regime=snap.regime, session=snap.session,
+                                        levels=SimpleNamespace(atr=float(sig.context.get("atr") or 0.0)))
+                safe(self.journal.set_state, f"last_price:{tsym}", str(tsnap.price))
+                if not observe_only and symbol in self.state.open_symbols:
+                    reject(symbol, strat.name, "opposite_position_open", sig.direction)
+                    continue
             sig.context["conviction"] = conv.score
             sig.context["confirmations"] = conv.fired
             if symbol in self._scan_extra:
@@ -601,7 +652,7 @@ class Bot:
                 if conv.score >= strat.conviction_min(self.cfg):
                     try:
                         from . import shadow
-                        shadow.open_trade(self.journal, sig, snap, self.cfg, equity=self.state.equity, max_pos_pct=ecfg.max_pos_pct,
+                        shadow.open_trade(self.journal, sig, tsnap, self.cfg, equity=self.state.equity, max_pos_pct=ecfg.max_pos_pct,
                                           conviction=conv.score, now_utc=now_utc, session_date=today)
                     except Exception as exc:  # noqa: BLE001
                         self.log.warning("shadow entry failed for %s %s: %s", strat.name, symbol, exc)
@@ -617,9 +668,9 @@ class Bot:
                        json.dumps({"minutes_since_open": snap.minutes_since_open, "wait_min": first_min, "entry": sig.entry,
                                    "stop": sig.stop, "target": sig.target, "conviction": conv.score}))
                 continue
-            gates = riskmod.entry_gates(self.state, symbol=symbol, direction=sig.direction, now=now_utc,
-                                        last_stop_iso=self.journal.last_stop_time(symbol, sig.direction), cfg=ecfg)
-            if any(t["symbol"] == symbol for t in self.journal.pending_trades()):
+            gates = riskmod.entry_gates(self.state, symbol=tsym, direction=sig.direction, now=now_utc,
+                                        last_stop_iso=self.journal.last_stop_time(tsym, sig.direction), cfg=ecfg)
+            if any(t["symbol"] == tsym for t in self.journal.pending_trades()):
                 gates.append("pending_order")
             if gates:
                 reject(symbol, strat.name, ",".join(gates), sig.direction)
@@ -633,21 +684,21 @@ class Bot:
                     continue
                 from .sizing import SizeResult
                 sz = SizeResult(float(n), sig.entry * 100 * self.cfg.opt_premium_stop * n, 0.0, ecfg.max_pos_pct, 1.0, sig.entry * 100 * n)
-                self._enter(sig, sz, snap, now_utc, webhook_agreed=None)
+                self._enter(sig, sz, tsnap, now_utc, webhook_agreed=None)
                 taken.append(sig)
                 continue
             pnls = [t["pnl"] for t in self.journal.closed_trades(strat.name) if t["pnl"] is not None]
-            sz = size_trade(equity=self.state.equity, price=snap.price, entry=sig.entry, stop=sig.stop,
-                            target=sig.target, atr=snap.levels.atr, closed_pnls=pnls, cfg=ecfg)
+            sz = size_trade(equity=self.state.equity, price=tsnap.price, entry=sig.entry, stop=sig.stop,
+                            target=sig.target, atr=tsnap.levels.atr, closed_pnls=pnls, cfg=ecfg)
             if sz.qty <= 0:
                 reject(symbol, strat.name, f"size:{sz.reason}", sig.direction)
                 continue
             cm = ecfg.confluence_mult(max(int(sig.context.get("confluence", 1)), int(sig.context.get("conviction", 1))))
             if cm != 1.0:
-                cap = min(self.cfg.max_pos_dollars, self.state.equity * self.cfg.max_notional_pct) / snap.price
+                cap = min(self.cfg.max_pos_dollars, self.state.equity * self.cfg.max_notional_pct) / tsnap.price
                 qty = min(sz.qty * cm, cap)
                 qty = round(qty, 3) if self.cfg.fractional_shares else float(int(qty))
-                sz = sz.__class__(qty, sz.dollar_risk * cm, sz.kelly_full, sz.kelly_used, sz.vol_scale, qty * snap.price)
+                sz = sz.__class__(qty, sz.dollar_risk * cm, sz.kelly_full, sz.kelly_used, sz.vol_scale, qty * tsnap.price)
                 sig.context["confluence_mult"] = cm
             # earned size: more only after the strategy has proven itself on filled trades (apexpm/earned.py)
             try:
@@ -659,22 +710,22 @@ class Bot:
             sig.context["earned_tier"] = el["tier"]
             sig.context["earned_mult"] = el["mult"]
             if el["mult"] != 1.0 and sz.qty > 0:
-                cap = min(self.cfg.max_pos_dollars, self.state.equity * self.cfg.max_notional_pct) / snap.price
+                cap = min(self.cfg.max_pos_dollars, self.state.equity * self.cfg.max_notional_pct) / tsnap.price
                 qty = min(sz.qty * el["mult"], cap)
                 qty = round(qty, 3) if self.cfg.fractional_shares else float(int(qty))
                 if qty > 0:
-                    sz = sz.__class__(qty, sz.dollar_risk * qty / sz.qty, sz.kelly_full, sz.kelly_used, sz.vol_scale, qty * snap.price)
+                    sz = sz.__class__(qty, sz.dollar_risk * qty / sz.qty, sz.kelly_full, sz.kelly_used, sz.vol_scale, qty * tsnap.price)
             # buying power: a second position in a cash account can only use what the first left.
             # Size down to it rather than let the broker reject the order (a wasted signal).
             bp = float(getattr(self, "_buying_power", 0.0) or 0.0)
-            if bp > 0 and sz.qty * snap.price > bp * 0.98:
-                qty = bp * 0.98 / snap.price
+            if bp > 0 and sz.qty * tsnap.price > bp * 0.98:
+                qty = bp * 0.98 / tsnap.price
                 qty = round(qty, 3) if self.cfg.fractional_shares else float(int(qty))
-                if qty * snap.price < self.cfg.min_notional or qty <= 0:
+                if qty * tsnap.price < self.cfg.min_notional or qty <= 0:
                     reject(symbol, strat.name, "size:buying_power", sig.direction, json.dumps({"buying_power": bp, "wanted": sz.notional}))
                     continue
                 self.log.info("%s sized down to buying power: %.3f -> %.3f shares (bp %.2f)", symbol, sz.qty, qty, bp)
-                sz = sz.__class__(qty, sz.dollar_risk * qty / sz.qty, sz.kelly_full, sz.kelly_used, sz.vol_scale, qty * snap.price)
+                sz = sz.__class__(qty, sz.dollar_risk * qty / sz.qty, sz.kelly_full, sz.kelly_used, sz.vol_scale, qty * tsnap.price)
                 sig.context["sized_to_buying_power"] = True
             if sig.direction == "short" and not getattr(self, "_shorting", True):
                 reject(symbol, strat.name, "short:not_enabled", sig.direction)   # cash account: broker would refuse
@@ -682,7 +733,7 @@ class Bot:
             if sig.direction == "short" and self.cfg.fractional_shares and float(sz.qty) != int(sz.qty):
                 reject(symbol, strat.name, "fractional_short_not_allowed", sig.direction)
                 continue
-            chased = abs(snap.price - sig.entry) > self.cfg.level_tolerance_atr * snap.levels.atr * 2
+            chased = abs(tsnap.price - sig.entry) > self.cfg.level_tolerance_atr * tsnap.levels.atr * 2
             if chased and not self.cfg.allow_gap_fills and not sig.context.get("fill_at_market"):
                 reject(symbol, strat.name, "gap_fill_skipped", sig.direction)
                 continue
@@ -692,7 +743,7 @@ class Bot:
                 ref = sig.level_targeted
                 agreed = abs(float(hook["level"]) - ref) <= self.cfg.level_tolerance_atr
                 self.log.info("webhook %s %s level=%s agreed=%s", hook["event"], hook["direction"], hook["level"], agreed)
-            self._enter(sig, sz, snap, now_utc, webhook_agreed=agreed)
+            self._enter(sig, sz, tsnap, now_utc, webhook_agreed=agreed)
             taken.append(sig)
         return taken
 
@@ -861,6 +912,8 @@ class Bot:
                 price = self.feed.last_price(t["symbol"], self.cfg.max_price_age_sec) if self.feed.connected else None
             except Exception as exc:  # noqa: BLE001
                 self.log.warning("price fetch failed for %s: %s", t["symbol"], exc)
+        if price is None and t["symbol"] not in self.cfg.symbols and self.feed.connected:
+            price = self._vehicle_price(t["symbol"])          # an instrument off the scan list: fall back to its quote
         reason = None
         if held_min >= t["max_hold_min"]:
             reason = "max_hold"
@@ -1071,7 +1124,13 @@ class Bot:
             self.log.info("dashboard serving on %s:%d", self.cfg.dashboard_bind, self.cfg.dashboard_port)
         self.startup()
         if self.cfg.stream_enabled and self.broker.connected and not self.cfg.dry_run:
-            self.fast = FastLayer(self.cfg, self.cfg.symbols, self._on_tick, self._on_order)
+            extra = []
+            try:   # instruments held without being scanned get live prices too, so their exits run at tick speed
+                from . import vehicles
+                extra = [v for v in vehicles.VEHICLES.values() if v not in self.cfg.symbols]
+            except ImportError:
+                pass
+            self.fast = FastLayer(self.cfg, list(self.cfg.symbols) + extra, self._on_tick, self._on_order)
             self.fast.start()
         self.log.info("loop every %ds; fast layer %s", self.cfg.scan_interval_sec, "on" if self.fast else "off")
         while True:

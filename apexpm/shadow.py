@@ -115,7 +115,7 @@ def open_trade(journal, sig, snap, cfg, *, equity: float, max_pos_pct: float, co
         if now_utc - datetime.fromisoformat(last_stop["closed_at"]) < timedelta(minutes=COOLDOWN_MIN):
             return None
     sign = 1 if sig.direction == "long" else -1
-    price = float(snap.price)
+    price = float((sig.context or {}).get("fill_price") or snap.price)      # the traded instrument's price when it is not the scanned one
     fill = price + sign * _slip(sym, price, cfg)
     # the market has to still be between the stop and the target for the trade to make sense
     if (fill - sig.stop) * sign <= 0 or (sig.target - fill) * sign <= 0:
@@ -127,6 +127,9 @@ def open_trade(journal, sig, snap, cfg, *, equity: float, max_pos_pct: float, co
         return None
     notes = {"conviction": conviction, "session": (sig.context or {}).get("session"), "signal_entry": sig.entry,
              "atr": float(getattr(getattr(snap, "levels", None), "atr", 0.0) or 0.0)}
+    for k in ("vehicle", "underlying", "signal_direction"):
+        if (sig.context or {}).get(k):
+            notes[k] = sig.context[k]
     if (sig.context or {}).get("exit"):
         notes["exit"] = dict(sig.context["exit"])       # this strategy's own exit settings (runner, trail, break-even)
     if (sig.context or {}).get("scanner"):

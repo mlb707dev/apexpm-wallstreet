@@ -74,6 +74,11 @@ class Api:
             scanner.register(self.reg)
         except ImportError:
             pass
+        try:
+            from . import vehicles
+            vehicles.register(self.reg, lambda sym: self._last_price(sym))
+        except ImportError:
+            pass
         cal.ensure_table(journal)
         self._news = NewsFeed(cfg, journal) if cfg.news_enabled else None
         self._broker = None
