@@ -99,6 +99,21 @@ def duties(journal, registry, cfg, bot=None) -> List[Dict[str, Any]]:
                              else "no look journaled all session from: " + ", ".join(missing))
     out.append({"name": "strategies scanned", "check": scanned, "repair": None})
 
+    def dashboard_answers():
+        """The dashboard calls each of its own read-only answers every 30 minutes and records which ones fail."""
+        raw = journal.get_state("dashboard_selfcheck")
+        if not raw:
+            return True, "not checked yet"
+        try:
+            d = json.loads(raw)
+        except json.JSONDecodeError:
+            return True, "not checked yet"
+        bad = d.get("failed") or []
+        if bad:
+            return False, "these screens' data failed to load: " + "; ".join(f"{b['answer']} ({b['error']})" for b in bad[:4])
+        return True, f"all {d.get('checked', 0)} dashboard answers load (checked {d.get('ts')})"
+    out.append({"name": "dashboard answers", "check": dashboard_answers, "repair": None})
+
     def postmortems():
         if pm is None:
             return True, "replay role not installed"
@@ -314,6 +329,45 @@ def last(journal) -> Optional[Dict[str, Any]]:
         return json.loads(raw) if raw else None
     except json.JSONDecodeError:
         return None
+
+
+def alerts(journal, days: int = 7) -> List[Dict[str, Any]]:
+    """System alerts as episodes, newest first: one per unbroken run of failed checks of the same job, with
+    when it was first flagged, when it was last seen, and when it cleared (None while it is still failing).
+    Built from the checks already journaled; `closed` is the owner's own close of that episode."""
+    cutoff = _iso(_now() - timedelta(days=days))
+    live: Dict[str, Dict[str, Any]] = {}
+    out: List[Dict[str, Any]] = []
+    for r in journal.q("SELECT ts, detail FROM strategy_events WHERE name='warden' AND event='patrol' AND ts >= ? ORDER BY id", (cutoff,)):
+        try:
+            failed = set(json.loads(r["detail"] or "{}").get("failed") or [])
+        except Exception:  # noqa: BLE001
+            continue
+        for d in failed:
+            if d in live:
+                live[d]["last"] = r["ts"]; live[d]["checks"] += 1
+            else:
+                live[d] = {"duty": d, "since": r["ts"], "last": r["ts"], "until": None, "checks": 1}
+        for d in [d for d in live if d not in failed]:
+            e = live.pop(d); e["until"] = r["ts"]; out.append(e)
+    out += list(live.values())
+    now = last(journal) or {}
+    detail = {c["duty"]: c.get("detail") for c in now.get("checks", []) if not c.get("ok")}
+    for e in out:
+        e["active"] = e["until"] is None
+        e["detail"] = detail.get(e["duty"]) if e["active"] else None
+        e["closed"] = journal.get_state(f"alert_closed:{e['duty']}") == e["since"]
+    out.sort(key=lambda e: e["since"], reverse=True)
+    return out
+
+
+def close_alert(journal, duty: str, since: str) -> bool:
+    """The owner has seen this episode: stop showing it on the Overview. A new episode of the same job
+    (it clears, then fails again) is a new alert and shows again."""
+    if not any(e["duty"] == duty and e["since"] == since for e in alerts(journal, days=30)):
+        return False
+    journal.set_state(f"alert_closed:{duty}", since)
+    return True
 
 
 def due(journal) -> bool:

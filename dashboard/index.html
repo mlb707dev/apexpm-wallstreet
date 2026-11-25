@@ -198,7 +198,7 @@ button.btn,.back,.filters select{min-height:44px}
   </div></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2a4d;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;display:none;z-index:40"></div>
 <div id="login"><form onsubmit="return doLogin()">
-  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 55</span></h2>
+  <h2>APEXPM WALLSTREET <span class="ago" style="letter-spacing:0">build 57</span></h2>
   <label>API address</label><input class="inp" id="l_api" placeholder="https://your-api-host (blank = this server)">
   <label>Dashboard token</label><input class="inp" id="l_tok" type="password" autocomplete="current-password">
   <button>Sign in</button>
@@ -272,7 +272,8 @@ button.btn,.back,.filters select{min-height:44px}
 <section id="analytics"><div id="decTop"></div><div class="card" id="master" style="position:relative"><h3>Master view</h3><div class="empty">Loading…</div></div><div class="card" id="scanner" style="display:none"></div><div class="card" id="thennow"><h3>Then vs now</h3><div class="empty">Loading…</div></div><div class="card" id="coverage"><h3>Backtest coverage</h3><div class="empty">Loading…</div></div><div class="card" id="losslab"><h3>Loss lab</h3><div class="empty">Loading…</div></div><div id="ana"></div>
   <div id="stratmgmt">
     <div class="card" id="deccard"><h3>Needs your call <span class="ago">borderline cases the review will not decide alone</span></h3><div id="decpending"></div></div>
-    <div class="card"><h3>Manage strategies <span class="ago">live · paper · shadow (lab + quarantine)</span></h3><div id="stratlist"></div></div>
+    <div class="card"><h3>Recent status changes <span class="ago">what moved, when (New York), and the note given · tap one to jump to the strategy</span></h3><div id="stratrecent"></div></div>
+    <div class="card"><h3>By strategy <span class="ago">status and since when · orders placed · lab record · history · on paper first</span></h3><div id="stratlist"></div></div>
     <div class="card tbl"><h3>Your past calls</h3><div id="decresolved"></div></div>
     <details class="card tbl"><summary style="cursor:pointer;font-size:14px;font-weight:700;color:#fff">Strategy events <span class="ago">promotions, suspensions, reviews</span></summary><div id="events" style="margin-top:10px"></div></details>
   <div class="legbody"></div>
@@ -318,7 +319,10 @@ function ask(title, text, needNote=true){
     $('#m_ok').onclick=()=>done($('#m_note').value.trim()); $('#m_cancel').onclick=()=>done(null);
   });
 }
-function toast(msg){ const t=$('#toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none', 2500); }
+// a message about something that did NOT happen stays up long enough to be read (it used to vanish in 2.5 seconds)
+let TOAST_T = null;
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.style.display='block'; clearTimeout(TOAST_T);
+  TOAST_T = setTimeout(()=>t.style.display='none', /^(Error|Nothing changed|Not promoted|Could not)/.test(msg) ? 9000 : 2500); }
 async function api(p, opts={}){
   const base = LS.api; const headers = Object.assign({}, opts.headers||{});
   if (LS.tok) headers['Authorization'] = 'Bearer ' + LS.tok;
@@ -392,8 +396,25 @@ function renderBot(b){
     <p style="margin-top:8px">Hard ceilings in config still apply on every profile.</p>`;
 }
 
-const DUTY = {'public repo clean':'Nothing private is on the public repo','journal healthy':'The journal file passes its integrity check','journal backed up':'A verified backup was pulled off the server','bot alive':'The bot is running','strategies scanned':'The strategies are scanning today\'s market','postmortems':'Every closed trade has been replayed','loss reviews':'Every recent loss has been taken apart in the loss lab','brain':'The brain has learned from the latest replays','auditor':'The auditor checked the book','daily review':'The daily report was written','weekly recap':'The weekly recap was written','nightly tuner':'The overnight tuning pass ran'};
+const DUTY = {'dashboard answers':'Every screen of this dashboard can load its data','public repo clean':'Nothing private is on the public repo','journal healthy':'The journal file passes its integrity check','journal backed up':'A verified backup was pulled off the server','bot alive':'The bot is running','strategies scanned':'The strategies are scanning today\'s market','postmortems':'Every closed trade has been replayed','loss reviews':'Every recent loss has been taken apart in the loss lab','brain':'The brain has learned from the latest replays','auditor':'The auditor checked the book','daily review':'The daily report was written','weekly recap':'The weekly recap was written','nightly tuner':'The overnight tuning pass ran'};
 const tidyTimes = s => String(s||'').replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?(\+00:00|Z)?/g, m => when(/\+00:00|Z$/.test(m) ? m : m.replace(' ','T') + 'Z'));
+let SYS_ALERTS = [];
+const stampET = iso => { const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleString('en-US', {timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}); };
+async function closeAlert(duty, since){
+  try { const r = await api('/api/alerts/close', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({duty, since})});
+    if (!r.ok) toast('Could not close it: that alert is no longer current'); } catch (e) { toast('Could not close it: ' + e.message); }
+  loadHarness();
+}
+function alertRow(a){
+  const mins = (new Date(a.until || a.last) - new Date(a.since)) / 6e4;
+  const span = a.active ? `still failing at the last check, ${stampET(a.last)}` : `cleared ${stampET(a.until)}${mins >= 1 ? ' · lasted ' + hold(mins) : ''}`;
+  return `<div class="tr ${a.active ? 'wait' : ''}" style="${a.active ? '' : 'border-left:3px solid var(--line)'}">
+    <div class="tm">${etTime(a.since)}<span class="chip" style="font-size:9px;padding:2px 5px">System</span></div>
+    <div><div class="what">⚠ System check: ${a.duty}</div>
+      <div class="sub">a job alert, not a trade${DUTY[a.duty] ? ' · should be true: ' + DUTY[a.duty].toLowerCase() : ''}${a.closed ? ' · closed by you' : ''}</div>
+      <div class="px">Flagged ${stampET(a.since)} · ${span}${a.detail ? '<br>' + tidyTimes(a.detail) : ''}</div></div>
+    <div class="res"><span class="chip st-${a.active ? 'pending' : 'closed'}">${a.active ? 'Active' : 'Cleared'}</span></div></div>`;
+}
 let HARNESS_OPEN = false;
 async function loadHarness(){
   try {
@@ -401,7 +422,14 @@ async function loadHarness(){
     if(!l){ el.innerHTML = '<div class="empty">Job check: none yet. The first one runs 30 minutes after the bot starts.</div>'; return; }
     const bad = l.checks.filter(c=>!c.ok);
     // a failed job is a system alert at the top of the Overview, never a strategy decision (owner, 2026-11-10)
-    $('#sysalert').innerHTML = bad.length ? `<div class="banner warn"><b>System check:</b> ${bad.map(c=>`the ${c.duty} job needs attention (${tidyTimes(c.detail)})`).join('; ')}. This is a job problem, not a trading decision. Tell Claude in your build chat and it gets fixed.</div>` : '';
+    // one line per alert, each with when it was first flagged and when it was last checked, and its own close button.
+    // Closing is saved on the bot, so it stays closed on every device; the same job failing again later is a new alert.
+    SYS_ALERTS = w.alerts || [];
+    const ep = d => SYS_ALERTS.find(a => a.active && a.duty === d) || {duty: d, since: l.ts, closed: false};
+    const open = bad.map(c => ({c, a: ep(c.duty)})).filter(x => !x.a.closed);
+    $('#sysalert').innerHTML = open.map(({c, a}) => `<div class="banner warn" style="display:flex;gap:10px;align-items:flex-start"><div style="flex:1"><b>System check:</b> the ${c.duty} job needs attention (${tidyTimes(c.detail)}). This is a job problem, not a trading decision. Tell Claude in your build chat and it gets fixed.
+      <div class="ago" style="margin-top:4px;white-space:normal">Flagged ${stampET(a.since)} · last checked ${stampET(l.ts)} New York</div></div>
+      <button class="btn" style="flex:none;padding:2px 9px" aria-label="Close this alert" title="Close this alert" data-duty="${c.duty.replace(/"/g,'&quot;')}" data-since="${a.since}" onclick="closeAlert(this.dataset.duty, this.dataset.since)">✕</button></div>`).join('');
     const headline = bad.length ? `${bad.length} job${bad.length===1?'':'s'} need${bad.length===1?'s':''} attention: ${bad.map(c=>(DUTY[c.duty]||c.duty).toLowerCase()).join('; ')}` : 'All jobs done';
     el.innerHTML = `<details ${HARNESS_OPEN?'open':''} ontoggle="HARNESS_OPEN=this.open"><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:#fff;font-weight:700">
         <span>${bad.length?'⚠️':'✅'} ${headline} <span class="ago" style="font-weight:400">· checked ${when(l.ts)}</span></span><span class="ago">details ▾</span></summary>
@@ -776,19 +804,22 @@ function drawQuadrant(groups, cs, width){
   });
   const cap = (tx, ty, anchor, text) => s.appendChild(svgEl('text', {x: tx, y: ty, fill: '#8a93bd', 'font-size': 11, 'text-anchor': anchor}, text));
   const narrow = iw < 420;
+  const picked = MV.sel ? groups.find(g => g.key === MV.sel) : null;
+  if (!picked) {      // the top band belongs to the picked bubble's name and numbers when one is picked
   cap(L + iw - 6, T + 14, 'end', narrow ? 'Stack these' : 'Wins often and big: stack these');
   cap(L + 6, T + 14, 'start', narrow ? 'Let them run' : 'Wins rarely, wins pay: let them run');
+  }
   cap(L + iw - 6, T + ih - 8, 'end', narrow ? 'Fix exits' : 'Wins often, losses hurt: fix exits');
   cap(L + 6, T + ih - 8, 'start', narrow ? 'Fix or cut' : 'Losing: fix or cut');
   // bubbles, biggest first so small ones stay on top
-  groups.slice().sort((a, b) => b.n - a.n).forEach(g => {
+  groups.slice().sort((a, b) => (a.key === MV.sel) - (b.key === MV.sel) || b.n - a.n).forEach(g => {      // the picked one is drawn last, on top
     const cx = x(g.win), cy = y(g.avg), r = rad(g.n), on = !MV.sel || MV.sel === g.key;
     const fill = MV.color === 'result' ? (g.net > 0 ? MV_GAIN : g.net < 0 ? MV_LOSS : MV_FLAT) : cs.fill(g.ck || g.label);
     const c = svgEl('circle', {cx, cy, r, fill, 'fill-opacity': on ? 0.78 : 0.15, stroke: '#10162b', 'stroke-width': 2, style: 'cursor:pointer'});
     if (MV.sel === g.key) { c.setAttribute('stroke', '#ffffff'); c.setAttribute('stroke-width', 2.5); }
     if (off(g)) {
       c.setAttribute('stroke', '#c8d4f0'); c.setAttribute('stroke-dasharray', '3 3'); c.setAttribute('stroke-width', 1.5);
-      const up = g.avg > 0, right = cx < L + iw - 90;
+      const up = g.avg > 0, right = cx < L + iw - 200;
       s.appendChild(svgEl('text', {x: right ? cx + r + 4 : cx - r - 4, y: up ? cy + r + 12 : cy - r - 4, fill: '#c8d4f0', 'font-size': 10, 'text-anchor': right ? 'start' : 'end', 'pointer-events': 'none'},
         `${up ? '▲' : '▼'} off scale: ${signed(g.avg)}× (${g.n} trade${g.n === 1 ? '' : 's'})`));
     }
@@ -805,7 +836,23 @@ function drawQuadrant(groups, cs, width){
   });
   // selective direct labels: biggest groups first, skipped when they would collide with one already placed
   const placed = [];
-  groups.slice(0, 10).forEach(g => {
+  if (picked) {       // named front and centre: its label beside it and its numbers across the top
+    const cx = x(picked.win), cy = y(picked.avg), r = rad(picked.n), right = cx < L + iw - 150;
+    const lab = svgEl('text', {x: right ? cx + r + 6 : cx - r - 6, y: cy + 5, fill: '#ffffff', 'font-size': 13, 'font-weight': 700, 'text-anchor': right ? 'start' : 'end',
+                               stroke: '#10162b', 'stroke-width': 4, 'paint-order': 'stroke', 'pointer-events': 'none'}, picked.label);
+    const w = picked.label.length * 8;
+    placed.push([right ? cx + r + 6 : cx - r - 6 - w, cy - 11, right ? cx + r + 6 + w : cx - r - 6, cy + 8]);
+    s.appendChild(svgEl('rect', {x: L + 4, y: T + 2, width: iw - 8, height: narrow ? 40 : 24, rx: 6, fill: '#10162b', 'fill-opacity': 0.92, stroke: '#2b3760', 'pointer-events': 'none'}));
+    const stats = `${picked.n} trade${picked.n === 1 ? '' : 's'} · won ${Math.round(picked.win * 100)}% · average ${signed(picked.avg)}× risk · net ${money(picked.net)}`;
+    if (narrow) {
+      s.appendChild(svgEl('text', {x: L + iw / 2, y: T + 17, fill: '#ffffff', 'font-size': 12, 'font-weight': 700, 'text-anchor': 'middle', 'pointer-events': 'none'}, picked.label));
+      s.appendChild(svgEl('text', {x: L + iw / 2, y: T + 33, fill: '#c8d4f0', 'font-size': 11, 'text-anchor': 'middle', 'pointer-events': 'none'}, stats));
+    } else {
+      s.appendChild(svgEl('text', {x: L + iw / 2, y: T + 18, fill: '#ffffff', 'font-size': 12, 'text-anchor': 'middle', 'pointer-events': 'none'}, picked.label + '  ·  ' + stats));
+    }
+    s.appendChild(lab);
+  }
+  groups.filter(g => !picked || g.key !== picked.key).forEach(g => {       // every group gets a label where there is room for one
     const cx = x(g.win), cy = y(g.avg), r = rad(g.n);
     const right = cx < L + iw - 120;
     const txt = g.label.length > 22 ? g.label.slice(0, 21) + '…' : g.label, w = txt.length * 6.3;
@@ -1050,18 +1097,35 @@ async function loadReports(){
     : '<div class="card"><div class="empty">No daily reports yet. The bot writes one after each session\'s review.</div></div>';
 }
 
+const STATUS_NAME = {paper: 'On paper', research: 'In the lab', suspended: 'Quarantined', retired: 'Retired', live: 'Live money'};
+const noteTxt = n => { const s = String(n || '').replace(/^dashboard:?\s*/i, ''); return s ? s.replace(/</g, '&lt;') : 'no note'; };
+const histRow = h => `<div class="row" style="align-items:flex-start;gap:10px"><span style="white-space:normal"><span class="chip ${h.status}">${STATUS_NAME[h.status]||h.status}</span><div class="dim">${noteTxt(h.note)}</div></span><b style="flex:none;font-weight:400" class="ago">${stampET(h.ts)}</b></div>`;
+function gotoStrat(name){ const el = document.getElementById('strat-' + name); if (!el) return; el.scrollIntoView({block: 'center'}); el.style.outline = '2px solid var(--sky)'; setTimeout(() => { el.style.outline = ''; }, 2500); }
 async function loadStrategies(){
   const ss = await api('/api/strategies');
-  $('#stratlist').innerHTML = ss.map(s=>{
+  const card = s => {
     const st = s.stats;
     const stats = st ? `<div class="kv" style="margin-top:8px"><div><div class="k">Trades</div><div class="v sm">${st.trades}</div></div><div><div class="k">Win</div><div class="v sm">${Math.round(st.win_rate*100)}%</div></div><div><div class="k">Exp</div><div class="v sm ${cls(st.expectancy_r)}">${(st.expectancy_r>=0?'+':'')+fmt(st.expectancy_r)}R</div></div><div><div class="k">P&amp;L (all)</div><div class="v sm ${cls(st.pnl)}">${money(st.pnl)}</div></div><div><div class="k">PF</div><div class="v sm">${st.profit_factor==null?'—':(st.profit_factor>99?'∞':fmt(st.profit_factor))}</div></div><div><div class="k">Max DD</div><div class="v sm">${fmt(st.max_dd_r)}R</div></div></div>` : '<p>No closed trades yet.</p>';
     const lr = s.live_readiness; const lrTxt = (lr ? (lr.ready ? '<span class="pos">live bar met</span>' : 'live bar: '+lr.checks.filter(c=>!c.ok).map(c=>c.name+' ('+c.value+')').join(' · ')) : '') + (s.earned && (s.book==='paper'||s.book==='live') ? `<br>size ×${s.earned.mult.toFixed(2)} (${s.earned.name})${s.earned.guard?' · stepped down: '+s.earned.guard:''} · ${s.earned.next}` : '');
-    const act = (s.status==='suspended'||s.status==='research') ? `<button class="btn ok" onclick="setStatus('${s.name}','paper')">Promote to paper</button>` : (s.status==='retired' ? '' : `<button class="btn warn" onclick="setStatus('${s.name}','suspended')">Suspend</button>`);
+    const act = (s.status==='suspended'||s.status==='research') ? `<button class="btn ok" onclick="setStatus('${s.name}','paper')">Put on paper</button>` : (s.status==='retired' ? '' : `<button class="btn warn" onclick="setStatus('${s.name}','suspended')">Quarantine (no orders)</button>`);
+    const H = s.history || [], L = s.lab;
+    const sinceTxt = s.since ? `${STATUS_NAME[s.status]||s.status} since <b>${stampET(s.since)}</b> New York` : '';
+    const labTxt = L ? `Lab record, own tickers: <b>${L.n}</b> trade${L.n===1?'':'s'} · won ${L.win==null?'—':Math.round(L.win*100)+'%'} · ${L.avg_r==null?'—':signed(L.avg_r)+'× risk'} · <span class="${cls(L.net)}">${money(L.net)}</span> (simulated)` : 'Lab record: no simulated trades yet.';
+    const histTxt = H.length ? `<details style="margin-top:6px"><summary class="ago" style="cursor:pointer">Status history · ${H.length} change${H.length===1?'':'s'}</summary>${H.slice().reverse().map(histRow).join('')}</details>` : '';
     const v = s.variant; let vTxt = '';
     if(v && v.evidence && v.evidence.pooled){ const p = v.evidence.pooled; const f = x => (x.exp>=0?'+':'')+fmt(x.exp,3)+'R n'+x.n;
       vTxt = `<p class="mono" style="margin-top:6px">tuned from ${v.base} · ${(v.created_at||'').slice(0,10)}<br>time-split: train ${f(p.train)} · validate ${f(p.val)} · test ${f(p.test)} pf ${fmt(p.test.pf)}</p>`; }
-    return `<div class="card" style="background:var(--bg3)"><h3>${s.name}${tagChips(s)}<span class="chip ${s.status}">${s.label||s.status} · ${s.book}</span></h3><p>${s.description}</p><p class="mono">mode ${s.mode} · ${s.symbols.join(', ')}</p>${vTxt}${stats}<p class="ago" style="margin-top:6px">${lrTxt}</p><div class="actions">${act}${s.status==='retired'?'':`<button class="btn" onclick="setStatus('${s.name}','research')">To research</button>`}</div></div>`;
-  }).join('');
+    return `<div class="card" id="strat-${s.name}" style="background:var(--bg3)"><h3>${nice(s.name)}${tagChips(s)}<span class="chip ${s.status}">${s.label||s.status} · ${s.book}</span></h3>
+      ${sinceTxt ? `<p style="margin:0 0 4px">${sinceTxt}</p>` : ''}<p>${s.description}</p><p class="mono">${s.name} · mode ${s.mode} · ${s.symbols.join(', ')}</p>${vTxt}
+      <div class="k" style="margin-top:8px">Orders placed (paper book)</div>${stats}<p style="margin-top:6px;white-space:normal">${labTxt}</p>${histTxt}<p class="ago" style="margin-top:6px">${lrTxt}</p>
+      <div class="actions">${act}${(s.status==='retired'||s.status==='research')?'':`<button class="btn" onclick="setStatus('${s.name}','research')">Back to the lab</button>`}<button class="btn" onclick="openStrat('${s.name}')">Every trade and detail</button></div></div>`;
+  };
+  const order = {live: 0, paper: 1, research: 2, suspended: 3, retired: 4};
+  $('#stratlist').innerHTML = ss.slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || a.name.localeCompare(b.name)).map(card).join('');
+  // recent changes across every strategy, newest first: what moved, when, and the note given at the time
+  const recent = ss.flatMap(s => (s.history || []).filter(h => !h.note.startsWith('registered')).map(h => ({...h, name: s.name}))).sort((a, b) => new Date(b.ts) - new Date(a.ts)).slice(0, 12);
+  $('#stratrecent').innerHTML = recent.length ? recent.map(h => `<div class="row" style="align-items:flex-start;gap:10px;cursor:pointer" onclick="gotoStrat('${h.name}')"><span style="white-space:normal"><b>${nice(h.name)}</b> ${h.from ? '<span class="ago">' + (STATUS_NAME[h.from]||h.from).toLowerCase() + ' →</span> ' : ''}<span class="chip ${h.status}">${STATUS_NAME[h.status]||h.status}</span><div class="dim">${noteTxt(h.note)}</div></span><b style="flex:none;font-weight:400" class="ago">${stampET(h.ts)}</b></div>`).join('')
+    : '<div class="empty">No status changes yet.</div>';
 }
 async function ladderReset(){
   const confirm = await ask('Record an account reset', 'The difference between the new balance and the old baseline is written to the cash ledger. Baselines move; every trade and every statistic stays. Type reset to continue.');
@@ -1112,16 +1176,14 @@ async function downloadBackup(){
     setTimeout(()=>URL.revokeObjectURL(u), 10000); toast('Backup downloaded (' + Math.round(b.size/1024) + ' KB)');
   } catch(e) { toast('Backup failed: ' + e.message); }
 }
+// One confirmation (owner, 2026-11-24: "don't make me double confirm"): a single box says what will happen, a note
+// is optional, and OK does it. The typed word is gone from the page; the bot still requires it of any other caller.
 async function setStatus(name, status){
-  let confirm = '';
-  if(status==='paper'){
-    confirm = await ask('Promote '+name+' to PAPER', 'Real paper orders from the next scan. Type the word promote to continue.');
-    if(confirm===null) return;
-    if((confirm||'').trim().toLowerCase()!=='promote'){ toast('Not promoted: type promote to confirm'); return; }
-  }
-  const note = await ask((status==='paper'?'Reason for promoting ':status==='suspended'?'Quarantine ':'Move to lab: ')+name, status==='paper'?'Required: the evidence (backtest result, review) behind this promotion.':status==='suspended'?'Shadow book: journaled, no orders.':'Shadow book for tuning.');
+  const note = await ask(status==='paper' ? 'Put '+nice(name)+' on paper?' : (status==='suspended'?'Quarantine ':'Move to lab: ')+nice(name),
+    status==='paper' ? 'It places real paper orders from its next scan. Add a note if you like, then OK.' : status==='suspended'?'Shadow book: journaled, no orders. Add a note if you like.':'Shadow book for tuning. Add a note if you like.');
   if(note===null) return;
-  const r = await api('/api/strategy/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,status,note:note||'',confirm})});
+  const confirm = status==='paper' ? 'promote' : '';
+  const r = await api('/api/strategy/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,status,note:note||(status==='paper'?'approved on the dashboard':''),confirm})});
   if(!r.ok) toast('Error: '+r.error); else toast('Done'); loadStrategies().catch(showErr); loadHome().catch(()=>{});
 }
 
@@ -1143,14 +1205,11 @@ async function loadDecisions(){
 // a card that asks to activate or promote a lab strategy: approving it puts the strategy on paper
 const isPromo = x => !!x.subject && /^(Activate|Promote) /.test(x.title||'');
 async function resolveDecision(id, status, promote){
-  let confirm = '';
-  if(status==='approved' && promote){
-    confirm = await ask('Put '+nice(promote)+' on paper', 'It places real paper orders from its next scan. Type the word promote to continue.');
-    if(confirm===null) return;
-    if((confirm||'').trim().toLowerCase()!=='promote'){ toast('Nothing changed: type promote to confirm'); return; }
-  }
-  const note = await ask((status==='approved'?(promote?'Reason for putting it on paper':'Approve'):'Dismiss')+(promote&&status==='approved'?'':' decision #'+id), promote&&status==='approved'?'Required, a few words: why you are approving it.':'');
-  if(note===null) return;
+  const doing = status==='approved' && promote;
+  const typed = await ask(doing ? 'Put '+nice(promote)+' on paper?' : (status==='approved'?'Approve':'Dismiss')+' decision #'+id,
+    doing ? 'It places real paper orders from its next scan. Add a note if you like, then OK.' : 'Add a note if you like, then OK.');
+  if(typed===null) return;
+  const confirm = doing ? 'promote' : '', note = typed || (doing ? 'approved on the dashboard' : '');
   const r = await api('/api/decisions/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status,note,confirm})});
   if(!r.ok) toast('Nothing changed: '+r.error); else toast(r.promoted ? nice(r.promoted)+' is now on paper' : 'Done');
   loadDecisions().catch(showErr);
@@ -1264,11 +1323,16 @@ function drawStats(){
   $('#st_by').style.display = closed.length ? '' : 'none';
   const rows = closed.slice().sort((a, b) => (b.closed_at || '').localeCompare(a.closed_at || ''));
   const shown = rows.slice(0, ST.show); let html = '', day = null, dayRows = [];
+  // system alerts sit in the same timeline, at the time each was first flagged (back to the oldest trade shown)
+  const floor = rows.length > ST.show ? shown[shown.length - 1].closed_at : '';
+  const items = shown.map(t => ({ts: t.closed_at || '', t})).concat((SYS_ALERTS || []).filter(a => a.since >= floor).map(a => ({ts: a.since, a})))
+    .sort((x, y) => new Date(y.ts) - new Date(x.ts));
   const flush = () => { if (!dayRows.length) return; const all = rows.filter(t => etDay(t.closed_at) === day), pnl = all.reduce((a, t) => a + (t.pnl || 0), 0);
-    html += `<div class="day"><span>${day}</span><span class="${cls(pnl)}">${money(pnl)} · ${all.length} trade${all.length === 1 ? '' : 's'}</span></div>` + dayRows.map(tradeRow).join(''); dayRows = []; };
-  for (const t of shown) { const d = etDay(t.closed_at); if (d !== day) { flush(); day = d; } dayRows.push(t); }
+    html += `<div class="day"><span>${day}</span><span class="${cls(pnl)}">${money(pnl)} · ${all.length} trade${all.length === 1 ? '' : 's'}</span></div>` + dayRows.map(x => x.a ? alertRow(x.a) : tradeRow(x.t)).join(''); dayRows = []; };
+  for (const x of items) { const d = etDay(x.ts); if (d !== day) { flush(); day = d; } dayRows.push(x); }
   flush();
-  $('#st_list').innerHTML = `<h3>Trades <span class="ago">${rows.length} closed, newest first · times in New York</span></h3>` + (rows.length ? html +
+  const nAl = items.filter(x => x.a).length;
+  $('#st_list').innerHTML = `<h3>Activity <span class="ago">${rows.length} closed trade${rows.length === 1 ? '' : 's'}${nAl ? ', ' + nAl + ' system alert' + (nAl === 1 ? '' : 's') : ''}, newest first · times in New York</span></h3>` + (items.length ? html +
     (rows.length > ST.show ? `<div class="actions"><button class="btn ok" onclick="ST.show+=100;drawStats()">Show ${Math.min(100, rows.length - ST.show)} more</button></div>` : '') : '<div class="empty">No closed trades in this window.</div>');
 }
 function stWin(k){ ST.win = k; ST.show = 50; drawStats(); }
@@ -1303,7 +1367,7 @@ async function loadLegend(){
     document.querySelectorAll('.legbody').forEach(el => { el.innerHTML = html; });
   } catch(e) {}
 }
-async function loadStats(){ ST.data = await api('/api/stats'); drawStats(); loadLegend();
+async function loadStats(){ ST.data = await api('/api/stats'); try { SYS_ALERTS = (await api('/api/warden')).alerts || []; } catch (e) {} drawStats(); loadLegend();
   const rj = await api('/api/rejections');
   $('#rej').innerHTML = rj.length ? '<table><tr><th>Date</th><th>Strategy</th><th>Why it passed</th><th>Times</th></tr>' + rj.map(r=>`<tr><td>${whenDay(r.date)}</td><td>${nice(r.setup)}</td><td>${r.reason.replace(/_/g,' ')}</td><td>${r.n}</td></tr>`).join('') + '</table>' : '<div class="empty">No rejections in the last 7 days.</div>'; }
 async function loadAll(){ await loadHome(); }

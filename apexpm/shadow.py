@@ -323,8 +323,11 @@ def readiness(journal, registry) -> List[Dict[str, Any]]:
         if registry.status(name) != "research":
             continue
         # the bar is judged on the tickers the strategy would actually trade; scanner-sourced trades are a separate record
+        # ... and only what the account can actually place (2026-11-24): it is cash and long-only, and crypto is never
+        # ordered, so a record made of short or crypto trades says nothing about what paper would do. Cards raised on
+        # such records put two strategies on paper whose lab edge was on the short side.
         rs = [dict(r) for r in journal.q("SELECT * FROM shadow_trades WHERE strategy=? AND status='closed' AND pnl IS NOT NULL "
-                                         "AND COALESCE(notes, '') NOT LIKE ?", (name, SCANNER_TAG))]
+                                         "AND COALESCE(notes, '') NOT LIKE ? AND direction='long' AND symbol NOT LIKE '%/%'", (name, SCANNER_TAG))]
         if not rs:
             continue
         s = _sum(rs)
@@ -344,7 +347,7 @@ def propose_ready(journal, registry) -> List[int]:
         if not r["ready"]:
             continue
         pf = "no losses" if r["pf"] == math.inf else f"{r['pf']:.2f}"
-        detail = (f"Shadow book (simulated, no orders): {r['n']} closed trades over {r['days']} session days, won {r['win'] * 100:.0f}%, "
+        detail = (f"Shadow book (simulated, no orders; long stock trades only, the kind paper can place): {r['n']} closed trades over {r['days']} session days, won {r['win'] * 100:.0f}%, "
                   f"average {r['avg_r']:+.2f}x risk, profit factor {pf}, net ${r['net']:,.2f}; the best trade is "
                   f"{r['top_share'] * 100:.0f}% of the gains. Bar: {READY['min_trades']}+ trades on {READY['min_days']}+ days, "
                   f"average >= +{READY['min_avg_r']:.2f}x, profit factor >= {READY['min_pf']}, no single trade over "

@@ -414,6 +414,24 @@ class Api:
         out = []
         variantsmod.register_all(self.reg, self.j)
         vrows = {r["name"]: r for r in variantsmod.rows(self.j, active_only=False)}
+        # every status change with its time and the note given, so a strategy's path is traceable from the page
+        hist: Dict[str, List[dict]] = {}
+        for r in self.j.q("SELECT ts, name, event, detail FROM strategy_events WHERE event LIKE 'status:%' ORDER BY id"):
+            h = hist.setdefault(r["name"], [])
+            row = {"ts": r["ts"], "status": r["event"][7:], "note": r["detail"] or "", "from": h[-1]["status"] if h else None}
+            if not (h and h[-1]["status"] == row["status"] and row["note"].startswith("registered")):   # a restart re-registering is not a change
+                h.append(row)
+        lab: Dict[str, dict] = {}
+        try:   # the lab record on the strategy's own tickers (trades on scanner-sourced tickers are reported with the scanner)
+            from . import shadow
+            shadow.ensure(self.j)
+            for r in self.j.q("SELECT strategy, COUNT(*) AS n, SUM(pnl > 0) AS w, AVG(rr_realized) AS r, SUM(pnl) AS net, MAX(closed_at) AS last "
+                              "FROM shadow_trades WHERE status='closed' AND pnl IS NOT NULL AND COALESCE(notes, '') NOT LIKE ? GROUP BY strategy",
+                              (shadow.SCANNER_TAG,)):
+                lab[r["strategy"]] = {"n": r["n"], "win": round((r["w"] or 0) / r["n"], 3) if r["n"] else None,
+                                      "avg_r": round(r["r"], 3) if r["r"] is not None else None, "net": round(r["net"] or 0.0, 2), "last": r["last"]}
+        except Exception:  # noqa: BLE001
+            lab = {}
         for n in self.reg.names():
             st = self.reg.stats(n)
             e = self.reg._entries[n]
@@ -422,6 +440,8 @@ class Api:
                         "book": self.reg.book(n), "label": self.reg.label(n),
                         "mode": self.reg.mode_for(n), "symbols": e.symbols, "stats": st.__dict__ if st else None,
                         "tags": list(getattr(e.strategy, "tags", ()) or ()),
+                        "history": hist.get(n, [])[-15:], "lab": lab.get(n),
+                        "since": (hist[n][-1]["ts"] if hist.get(n) and hist[n][-1]["status"] == self.reg.status(n) else None),
                         "earned": self._earned(n),
                         "live_readiness": self.reg.live_readiness(n),
                         "variant": {"base": v["base"], "overrides": v["overrides"], "evidence": v["evidence"], "created_at": v["created_at"]} if v else None})
@@ -592,7 +612,40 @@ class Api:
 
     def warden(self) -> Dict[str, Any]:
         from . import warden as wardenmod
-        return {"last": wardenmod.last(self.j), "patrol_every_min": wardenmod.PATROL_EVERY_MIN}
+        return {"last": wardenmod.last(self.j), "patrol_every_min": wardenmod.PATROL_EVERY_MIN, "alerts": wardenmod.alerts(self.j)}
+
+    def close_alert(self, duty: str, since: str) -> Dict[str, Any]:
+        from . import warden as wardenmod
+        return {"ok": wardenmod.close_alert(self.j, duty, since)}
+
+    def backup_file(self, directory: str) -> str:
+        """A consistent copy of the journal written into `directory`; the caller streams it and removes the directory."""
+        p = os.path.join(directory, "apexpm-backup.db")
+        self.j.snapshot(p)
+        with self.j.tx() as c:
+            c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (datetime('now'), 'backup', 'served', ?)",
+                      (json.dumps({"bytes": os.path.getsize(p)}),))
+        return p
+
+    def selfcheck(self) -> Dict[str, Any]:
+        """Call every read-only dashboard answer the way the page does and record which ones fail, so a broken
+        screen is flagged by the warden instead of being found by the owner. No side effects: answers that
+        file proposals or do heavy work on demand are left out."""
+        names = ("overview", "bot", "positions", "lab_positions", "trades", "strategies", "rejections", "events", "reports", "weekly_reports",
+                 "plan", "settings", "calendar", "decisions", "news", "variants", "warden", "data_status", "ledger", "scanner", "stats",
+                 "glossary", "strategy_analytics")
+        failed = []
+        for n in names:
+            fn = getattr(self, n, None)
+            if fn is None:
+                continue
+            try:
+                json.dumps(_finite(fn()), default=str)
+            except Exception as exc:  # noqa: BLE001
+                failed.append({"answer": n, "error": f"{type(exc).__name__}: {exc}"[:160]})
+        out = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "checked": len(names), "failed": failed}
+        self.j.set_state("dashboard_selfcheck", json.dumps(out))
+        return out
 
     def backup_bytes(self) -> bytes:
         """The whole journal as one SQLite file (consistent snapshot). Token-gated like every /api route."""
@@ -785,13 +838,24 @@ class Api:
         if status not in ("research", "paper", "live", "suspended", "retired"):
             return {"ok": False, "error": "status_not_allowed_from_dashboard"}
         note = (note or "").strip()
+        # a phone adds a capital, a full stop or a trailing space: the word still counts
+        said = " ".join("".join(ch for ch in (confirm or "").lower() if ch.isalpha() or ch == " ").split())
+
+        def refuse(why: str) -> Dict[str, Any]:
+            try:   # leave a trace, so "it would not promote" can be answered from the journal
+                with self.j.tx() as c:
+                    c.execute("INSERT INTO strategy_events (ts, name, event, detail) VALUES (datetime('now'), ?, 'promotion_refused', ?)",
+                              (name, f"to {status}: {why}"))
+            except Exception:  # noqa: BLE001
+                pass
+            return {"ok": False, "error": why}
         if status == "paper":
-            if confirm.strip().lower() != "promote":
-                return {"ok": False, "error": "paper promotion needs the typed word 'promote'"}
+            if said != "promote":
+                return refuse("paper promotion needs the typed word 'promote'")
             if len(note) < 5:
-                return {"ok": False, "error": "paper promotion needs a reason (5+ characters)"}
+                return refuse("paper promotion needs a reason (5+ characters)")
         if status == "live":
-            if confirm.strip().lower() != "go live":
+            if said != "go live":
                 return {"ok": False, "error": "live promotion needs the typed words 'go live'"}
             r = self.reg.live_readiness(name)
             if not r["ready"]:
@@ -928,24 +992,44 @@ def make_handler(api: Api, token: str = ""):
                 "/api/brain": api.brain, "/api/warden": api.warden, "/api/coverage": api.coverage, "/api/data": api.data_status, "/api/ledger": api.ledger,
             }
             if path == "/api/backup":
-                try:
-                    body = api.backup_bytes()
-                except Exception as exc:  # noqa: BLE001
-                    return self._json({"error": str(exc)}, 500)
+                # Streamed in pieces (2026-11-24): the journal passed 100 MB, and building the whole compressed copy in
+                # memory before sending the first byte left the connection silent long enough for the nightly pull to
+                # time out three nights running. Bytes now flow as they are compressed.
+                import tempfile
+                import zlib
                 packed = "gzip" in (self.headers.get("Accept-Encoding") or "").lower()
-                if packed:      # the journal compresses about 7 to 1; the nightly copy asks for it that way
-                    body = gzip.compress(body, 6)
-                self.send_response(200)
-                self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Content-Disposition", f'attachment; filename="apexpm-journal-{et_date()}.db"')
-                if packed:
-                    self.send_header("Content-Encoding", "gzip")
-                self.send_header("Content-Length", str(len(body)))
-                self.send_header("Cache-Control", "no-store")
-                self._cors()
-                self.end_headers()
-                self.wfile.write(body)
-                SENT.add(api.j, len(body) + 400)
+                with tempfile.TemporaryDirectory() as tmp:
+                    try:
+                        p = api.backup_file(tmp)
+                    except Exception as exc:  # noqa: BLE001
+                        return self._json({"error": str(exc)}, 500)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/octet-stream")
+                    self.send_header("Content-Disposition", f'attachment; filename="apexpm-journal-{et_date()}.db"')
+                    if packed:
+                        self.send_header("Content-Encoding", "gzip")     # length unknown up front: the body ends when the connection closes
+                    else:
+                        self.send_header("Content-Length", str(os.path.getsize(p)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Connection", "close")
+                    self._cors()
+                    self.end_headers()
+                    self.close_connection = True
+                    z = zlib.compressobj(3, zlib.DEFLATED, 31) if packed else None
+                    sent = 0
+                    with open(p, "rb") as f:
+                        while True:
+                            chunk = f.read(1 << 20)
+                            if not chunk:
+                                break
+                            out = z.compress(chunk) if z else chunk
+                            if out:
+                                self.wfile.write(out); sent += len(out)
+                    if z:
+                        out = z.flush()
+                        self.wfile.write(out); sent += len(out)
+                    self.wfile.flush()
+                SENT.add(api.j, sent + 400)
                 return None
             if path == "/api/rejections/rows":
                 from urllib.parse import parse_qs
@@ -1026,6 +1110,8 @@ def make_handler(api: Api, token: str = ""):
                                                  str(body.get("confirm", ""))))
             if path == "/api/settings/profile":
                 return self._json(api.set_profile(str(body.get("profile", "")), str(body.get("note", ""))))
+            if path == "/api/alerts/close":
+                return self._json(api.close_alert(str(body.get("duty", "")), str(body.get("since", ""))))
             if path == "/api/decisions/resolve":
                 return self._json(api.resolve_decision(int(body.get("id", 0)), str(body.get("status", "")), str(body.get("note", "")),
                                                        str(body.get("confirm", ""))))
@@ -1115,6 +1201,17 @@ def serve(cfg: Config, port: Optional[int] = None, block: bool = True,
     # platform's 5-second health check or the phone. The journal's own lock serializes database access.
     ThreadingHTTPServer.daemon_threads = True
     httpd = ThreadingHTTPServer((bind, port), make_handler(api, cfg.dashboard_token))
+
+    def _selfcheck_loop():
+        import time
+        time.sleep(120)
+        while True:
+            try:
+                api.selfcheck()
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(1800)
+    threading.Thread(target=_selfcheck_loop, daemon=True, name="dashboard-selfcheck").start()
     if block:
         print(f"dashboard: http://127.0.0.1:{port}")
         if bind == "0.0.0.0":
