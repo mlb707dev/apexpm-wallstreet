@@ -261,6 +261,16 @@ class Journal:
             return self.q("SELECT * FROM trades WHERE status='closed' AND setup=? ORDER BY closed_at", (setup,))
         return self.q("SELECT * FROM trades WHERE status='closed' ORDER BY closed_at")
 
+    def loss_streak_today(self, setup: str, date_iso: str) -> int:
+        """How many of this strategy's most recent paper trades closed on this New York date lost in a row."""
+        n = 0
+        for r in self.q("SELECT closed_at, pnl FROM trades WHERE setup=? AND status='closed' AND closed_at IS NOT NULL "
+                        "ORDER BY closed_at DESC, id DESC LIMIT 20", (setup,)):
+            if et_date(datetime.fromisoformat(r["closed_at"])) != date_iso or (r["pnl"] or 0.0) >= 0:
+                break
+            n += 1
+        return n
+
     def trades_today(self, date_iso: str) -> int:
         return int(self.q1("SELECT COUNT(*) FROM trades WHERE session_date=? AND status!='cancelled'", (date_iso,))[0])
 

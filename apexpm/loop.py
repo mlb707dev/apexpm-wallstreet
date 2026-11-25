@@ -668,6 +668,12 @@ class Bot:
                        json.dumps({"minutes_since_open": snap.minutes_since_open, "wait_min": first_min, "entry": sig.entry,
                                    "stop": sig.stop, "target": sig.target, "conviction": conv.score}))
                 continue
+            pause_n = int(getattr(self.cfg, "pause_after_losses", 0) or 0)
+            if pause_n > 0:
+                streak = self.journal.loss_streak_today(sig.setup, today)
+                if streak >= pause_n:
+                    reject(symbol, strat.name, "paused_after_losses", sig.direction, json.dumps({"losses_in_a_row_today": streak, "limit": pause_n}))
+                    continue
             gates = riskmod.entry_gates(self.state, symbol=tsym, direction=sig.direction, now=now_utc,
                                         last_stop_iso=self.journal.last_stop_time(tsym, sig.direction), cfg=ecfg)
             if any(t["symbol"] == tsym for t in self.journal.pending_trades()):

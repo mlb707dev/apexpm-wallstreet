@@ -74,6 +74,9 @@ class Config:
     # journal keeps measuring whether the rule earns its keep. 0 turns it off. Strategies built for the open
     # (trades_the_open = True) are exempt.
     no_entry_first_min: int = field(default_factory=lambda: _i("NO_ENTRY_FIRST_MIN", 15))
+    # A strategy whose last N paper trades closed today were all losses places no more orders today (0 = off).
+    # Owner, 2026-11-24, after three stop-outs of one strategy in one afternoon.
+    pause_after_losses: int = field(default_factory=lambda: _i("PAUSE_AFTER_LOSSES", 2))
     flat_by: str = field(default_factory=lambda: _s("FLAT_BY", "15:55"))
 
     # Levels and ribbon
